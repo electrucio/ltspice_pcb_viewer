@@ -1,15 +1,15 @@
 {
-  "name": "ltspice_pcb_viewer",
+  "name": "kicad_schematic_viewer",
   "version": "0.1.0",
   "description": "Framework-agnostic web component to visualize, explore, and highlight nets and components from KiCad schematics (.kicad_sch).",
   "type": "module",
-  "main": "./dist/ltspice_pcb_viewer.js",
-  "module": "./dist/ltspice_pcb_viewer.js",
+  "main": "./dist/kicad_schematic_viewer.js",
+  "module": "./dist/kicad_schematic_viewer.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/ltspice_pcb_viewer.js"
+      "import": "./dist/kicad_schematic_viewer.js"
     }
   },
   "files": ["dist"],
