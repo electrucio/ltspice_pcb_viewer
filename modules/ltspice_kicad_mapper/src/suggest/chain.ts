@@ -84,6 +84,11 @@ export function chooseChainSuggestion(p: ChainParams): ChainSuggestion | null {
     (c) => c.ref !== p.anchorKi.ref && EASY_TYPES.has(componentType(c.ref)) && !p.isMappedKi(c.ref) && sharesNet(c, p.anchorKi),
   );
 
+  // normalize distances per side so we can prefer the nearest connected neighbor
+  const dist = (a: ChainComp, b: ChainComp) => Math.hypot(a.pos.x - b.pos.x, a.pos.y - b.pos.y);
+  const maxLt = Math.max(1e-6, ...ltN.map((c) => dist(c, p.anchorLt)));
+  const maxKi = Math.max(1e-6, ...kiN.map((c) => dist(c, p.anchorKi)));
+
   let best: ChainSuggestion | null = null;
   for (const n of ltN) {
     for (const mc of kiN) {
@@ -98,7 +103,9 @@ export function chooseChainSuggestion(p: ChainParams): ChainSuggestion | null {
       const d1 = unit(n.pos.x - p.anchorLt.pos.x, n.pos.y - p.anchorLt.pos.y);
       const d2 = unit(mc.pos.x - p.anchorKi.pos.x, mc.pos.y - p.anchorKi.pos.y);
       const dir = d1 && d2 ? Math.max(0, d1.x * d2.x + d1.y * d2.y) : 0;
-      const score = 3 * sharedMapped + (sameRef ? 4 : 0) + (valueMatch ? 3 : 0) + dir;
+      // prefer the nearest neighbor on each side, so the chain stays local & easy to find
+      const proximity = (1 - dist(n, p.anchorLt) / maxLt) * 0.5 + (1 - dist(mc, p.anchorKi) / maxKi) * 0.5;
+      const score = 3 * sharedMapped + (sameRef ? 4 : 0) + (valueMatch ? 3 : 0) + 0.5 * dir + proximity;
       if (!best || score > best.score) best = { ltRef: n.ref, kiRef: mc.ref, score };
     }
   }

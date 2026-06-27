@@ -54,9 +54,12 @@ cluster by pressing **M** repeatedly. Candidates are components *adjacent to the
   to manual mapping;
 - shared already-mapped nets (topology) — strongest signal;
 - same reference designator and/or same value (engineering-aware: `4k7` == `4.7k`);
+- **proximity** to the anchor — the nearest directly-connected neighbor is preferred, so
+  the chain crawls locally instead of jumping around;
 - similar geometric direction from the anchor — a weak tie-breaker.
 
-If the suggestion is wrong, click the correct counterpart before pressing M.
+Both schematics **auto-zoom** to the anchor + suggestion, so the suggested parts are easy
+to find. If the suggestion is wrong, click the correct counterpart before pressing M.
 
 ### Inference (runs after every map / import)
 

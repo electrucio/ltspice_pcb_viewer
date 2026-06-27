@@ -230,6 +230,25 @@ export class ViewerController {
     for (const elx of this.svg.querySelectorAll(".ksv-mark")) elx.classList.remove("ksv-mark");
   }
 
+  /** Fit the view to the union bounding box of the given component groups (+ margin). */
+  zoomToComponents(refs: string[]): void {
+    let b: BBox | null = null;
+    for (const ref of refs) {
+      const g = this.svg.querySelector(`.ksv-component[data-ref="${this.cssEscape(ref)}"]`) as SVGGraphicsElement | null;
+      if (!g) continue;
+      let bb: DOMRect;
+      try { bb = g.getBBox(); } catch { continue; }
+      if (bb.width === 0 && bb.height === 0) continue;
+      const box = { minX: bb.x, minY: bb.y, maxX: bb.x + bb.width, maxY: bb.y + bb.height };
+      b = b
+        ? { minX: Math.min(b.minX, box.minX), minY: Math.min(b.minY, box.minY), maxX: Math.max(b.maxX, box.maxX), maxY: Math.max(b.maxY, box.maxY) }
+        : box;
+    }
+    if (!b) return;
+    const m = Math.max((b.maxX - b.minX) * 0.6, (b.maxY - b.minY) * 0.6, 10);
+    this.fit({ minX: b.minX - m, minY: b.minY - m, maxX: b.maxX + m, maxY: b.maxY + m });
+  }
+
   zoomToNet(name: string): void {
     const net = this.netlist.byName.get(name);
     if (!net) return;

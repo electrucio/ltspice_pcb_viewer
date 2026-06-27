@@ -37,6 +37,7 @@ interface ViewerElement extends HTMLElement {
   markComponents(refs: string[]): void;
   clearMarks(): void;
   zoomToNet(name: string): void;
+  zoomToComponents(refs: string[]): void;
   loadFromUrl(url: string): Promise<void>;
   loadFromString(text: string | ArrayBuffer | Uint8Array): void;
 }
@@ -256,6 +257,9 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       this.autoSide = "kicad";
       this.setTab("ltspice", "component");
       this.setTab("kicad", "component");
+      // bring the anchor + suggestion into view so the suggested parts are easy to find
+      this.sides.ltspice.viewer.zoomToComponents([m.ltspice, next.ltRef]);
+      this.sides.kicad.viewer.zoomToComponents([m.kicad, next.kiRef]);
     } else {
       // focus the new pair as a single mapped selection (cross-probed green on both)
       this.pairing.setSingle("ltspice", m.kind, m.ltspice);

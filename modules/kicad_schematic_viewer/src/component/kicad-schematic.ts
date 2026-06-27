@@ -119,6 +119,9 @@ export class KicadSchematicElement extends HTMLElement {
   zoomToNet(name: string): void {
     this.controller?.zoomToNet(name);
   }
+  zoomToComponents(refs: string[]): void {
+    this.controller?.zoomToComponents(refs);
+  }
 
   getNets(): NetInfo[] {
     if (!this.netlist) return [];

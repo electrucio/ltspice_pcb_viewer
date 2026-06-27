@@ -109,6 +109,7 @@ export class LtspiceSchematicElement extends HTMLElement {
   clearMarks(): void { this.controller?.clearMarks(); }
   fit(): void { this.controller?.fit(); }
   zoomToNet(name: string): void { this.controller?.zoomToNet(name); }
+  zoomToComponents(refs: string[]): void { this.controller?.zoomToComponents(refs); }
 
   getNets(): NetInfo[] {
     if (!this.model) return [];
