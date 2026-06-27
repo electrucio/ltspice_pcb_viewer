@@ -10,8 +10,13 @@ application later.
 | Module | Description |
 | --- | --- |
 | [`kicad_schematic_viewer`](modules/kicad_schematic_viewer/) | Framework-agnostic `<kicad-schematic>` web component that parses `.kicad_sch`, computes the netlist in-browser, and renders an interactive SVG with net/component highlighting. |
+| [`ltspice_schematic_viewer`](modules/ltspice_schematic_viewer/) | Framework-agnostic `<ltspice-schematic>` web component that parses `.asc` (with an embedded `.asy` symbol library), computes the netlist in-browser, and renders an interactive SVG with net/component highlighting. |
 
 _More modules to come; they will be integrated into the umbrella app._
+
+The two schematic viewers share the same interaction model and `ksv-*` theming
+conventions; their net engines are cross-validated against each other on the shared
+guitar-amplifier power-amp design.
 
 ## Working on a module
 
@@ -30,6 +35,7 @@ npm run build   # library bundle in dist/
 ```
 ltspice_pcb_viewer/
   modules/
-    kicad_schematic_viewer/   # KiCad schematic net/component viewer
+    kicad_schematic_viewer/     # KiCad schematic net/component viewer
+    ltspice_schematic_viewer/   # LTspice schematic net/component viewer
   README.md
 ```
