@@ -1,0 +1,78 @@
+# ltspice_kicad_mapper
+
+A web component that shows an **LTspice** schematic and a **KiCad** schematic side by
+side and lets you build (and export) a **1:1 mapping** between their **nets** and their
+**components**. Third module of the `ltspice_pcb_viewer` umbrella project; it embeds the
+two sibling viewer modules.
+
+```html
+<ltspice-kicad-mapper id="m" theme="dark"></ltspice-kicad-mapper>
+<script type="module">
+  import "ltspice_kicad_mapper"; // auto-registers <ltspice-kicad-mapper>
+  const m = document.getElementById("m");
+  m.registerLtspiceSymbol("lin_pot", asyText); // custom .asy, before loading
+  await m.loadLtspiceUrl("amp.asc");
+  await m.loadKicadUrl("board.kicad_sch");
+</script>
+```
+
+## Why
+
+The same circuit carries different auto-generated names in each tool (LTspice
+`PRE_SPEAKER` is KiCad `Net-(C8-Pad2)`). This tool produces a durable, re-loadable
+correspondence between the two domains.
+
+## Interaction
+
+- Click a net/part on one side → it becomes the **pending** selection (amber); likely
+  matches on the other side are **suggested** (blue). Suggestions never auto-apply.
+- Click the equivalent on the **other** side → the pair is **mapped** (both turn green).
+- Click an already-mapped item → both sides highlight green (cross-probe).
+- **Unmap** breaks the active pair; **Clear** drops the selection.
+- The per-side **Nets/Components** lists show mapped status (`→ counterpart`) + counts.
+- **Export mapping** downloads JSON; **Import mapping** restores it (stale ids pruned).
+
+## Architecture
+
+```
+src/
+  mapping/format.ts     MappingFile JSON schema + serialize/deserialize/validate
+  mapping/store.ts      MappingStore: two 1:1 bimaps (nets, components), suggest, import/export
+  interaction/pairing.ts pure pairing state machine (pending -> map), unit-tested
+  component/mapper.ts   <ltspice-kicad-mapper>: embeds both viewers, sidebars, toolbar
+  component/style.ts    shadow-DOM stylesheet
+  index.ts              entry: registers element + exports headless mapping primitives
+```
+
+It depends on the two sibling viewers, imported by relative path
+(`../../<viewer>/src/index.js`) for element registration; Vite bundles them. Highlight
+**color is recolored per state** by setting the viewers' `--ksv-highlight` /
+`--ksv-select` CSS variables — so the two viewer modules need no changes.
+
+### Public API
+- Attributes: `ltspice-src`, `kicad-src`, `theme`.
+- Methods: `loadLtspiceUrl`, `loadKicadUrl`, `registerLtspiceSymbol`, `loadMapping`,
+  `exportMapping(): MappingFile`, `getStore()`.
+- Event: `mappingchange` (detail = `{nets, components}` counts).
+
+### Mapping file
+```jsonc
+{ "version": 1,
+  "ltspiceSource": "AudioAmpCompl-40W.asc", "kicadSource": "poweramp.kicad_sch",
+  "nets":       [ { "ltspice": "FEEDBACK", "kicad": "Net-(C4-Pad2)" }, { "ltspice": "0", "kicad": "0" } ],
+  "components": [ { "ltspice": "R1", "kicad": "R1" } ] }
+```
+
+## Develop
+
+```bash
+npm install
+npm run dev     # demo: AudioAmpCompl-40W.asc <-> poweramp.kicad_sch
+npm test        # store + format + pairing unit tests
+npm run build   # bundle in dist/
+```
+
+## Limitations (v1)
+1:1 only (unmap to remap); suggestions match identical names/refs only (most nets are
+mapped manually because the tools' auto-names differ); mapped status is shown via list
+badges + selection cross-highlight (no persistent "show all mapped" tint).

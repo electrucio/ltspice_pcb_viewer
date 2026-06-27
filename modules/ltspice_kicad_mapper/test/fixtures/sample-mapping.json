@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "ltspiceSource": "AudioAmpCompl-40W.asc",
+  "kicadSource": "poweramp.kicad_sch",
+  "nets": [
+    { "ltspice": "0", "kicad": "0" },
+    { "ltspice": "VCC", "kicad": "POW" },
+    { "ltspice": "PRE_SPEAKER", "kicad": "Net-(C8-Pad2)" },
+    { "ltspice": "FEEDBACK", "kicad": "Net-(C4-Pad2)" },
+    { "ltspice": "BOOTSTRAP", "kicad": "Net-(C8-Pad1)" }
+  ],
+  "components": [
+    { "ltspice": "R1", "kicad": "R1" },
+    { "ltspice": "Q1", "kicad": "Q1" }
+  ]
+}
