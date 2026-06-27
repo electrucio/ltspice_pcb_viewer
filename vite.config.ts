@@ -10,8 +10,8 @@ export default defineConfig({
   build: {
     lib: {
       entry: resolve(__dirname, "src/index.ts"),
-      name: "KicadSchematicViewer",
-      fileName: "kicad-schematic-viewer",
+      name: "LtspicePcbViewer",
+      fileName: "ltspice_pcb_viewer",
       formats: ["es"],
     },
   },
