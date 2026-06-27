@@ -43,6 +43,21 @@ Mapping is **deliberate** — clicking only selects, so a stray click never maps
 - The per-side **Nets/Components** lists show mapped status (`→ counterpart`) + counts.
 - **Export mapping** downloads JSON; **Import mapping** restores it (stale ids pruned).
 
+### Chain of suggestions
+
+After you map a **component** pair, the mapper walks outward and **pre-selects the next
+likely component pair** (auto-selected on both sides) — so you can map a whole connected
+cluster by pressing **M** repeatedly. Candidates are components *adjacent to the anchor*
+(sharing a net) on each side, scored by:
+
+- same type (R/C/D/L/Q) — a hard gate; other parts (pots, sources, connectors) are left
+  to manual mapping;
+- shared already-mapped nets (topology) — strongest signal;
+- same reference designator and/or same value (engineering-aware: `4k7` == `4.7k`);
+- similar geometric direction from the anchor — a weak tie-breaker.
+
+If the suggestion is wrong, click the correct counterpart before pressing M.
+
 ### Inference (runs after every map / import)
 
 - If a mapped **component** has exactly one unmapped net on each side, those two nets

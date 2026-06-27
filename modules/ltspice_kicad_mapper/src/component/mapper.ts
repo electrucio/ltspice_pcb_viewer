@@ -20,9 +20,10 @@ import "../../../kicad_schematic_viewer/src/index.js";
 import { MappingStore, serialize, type AvailableIds } from "../mapping/store.js";
 import type { Kind, Side, MappingFile } from "../mapping/format.js";
 import { Pairing } from "../interaction/pairing.js";
+import { chooseChainSuggestion } from "../suggest/chain.js";
 import { STYLESHEET } from "./style.js";
 
-interface CompInfo { ref: string; value: string; nets: string[] }
+interface CompInfo { ref: string; value: string; nets: string[]; pos: { x: number; y: number } }
 interface NetInfoLite { name: string; isPower: boolean }
 
 /** Structural view of either viewer element (common subset the mapper uses). */
@@ -246,13 +247,24 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     }
     const inferred = this.runInference();
     this.updateMarks();
-    // focus the new pair as a single mapped selection (cross-probed green on both)
     this.autoSide = null;
-    this.pairing.setSingle("ltspice", m.kind, m.ltspice);
+    // chain of suggestions: after a component map, pre-select the next likely pair
+    const next = m.kind === "component" ? this.chainSuggest(m.ltspice, m.kicad) : null;
+    if (next) {
+      this.pairing.setSingle("ltspice", "component", next.ltRef);
+      this.pairing.select("kicad", "component", next.kiRef);
+      this.autoSide = "kicad";
+      this.setTab("ltspice", "component");
+      this.setTab("kicad", "component");
+    } else {
+      // focus the new pair as a single mapped selection (cross-probed green on both)
+      this.pairing.setSingle("ltspice", m.kind, m.ltspice);
+    }
     this.updateCounts();
     this.emitChange();
     this.refresh();
-    this.setStatus(`Mapped ${m.kind}: ${m.ltspice} ↔ ${m.kicad}${inferred ? ` (+${inferred} inferred)` : ""}`);
+    const base = `Mapped ${m.kind}: ${m.ltspice} ↔ ${m.kicad}${inferred ? ` (+${inferred} inferred)` : ""}`;
+    this.setStatus(next ? `${base}. Next suggestion: ${next.ltRef} ↔ ${next.kiRef} — press M` : base);
   }
 
   private unmapActive(): void {
@@ -286,6 +298,22 @@ export class LtspiceKicadMapperElement extends HTMLElement {
 
   private componentNets(side: Side, ref: string): string[] {
     return this.sides[side].comps.find((c) => c.ref === ref)?.nets ?? [];
+  }
+
+  /** Best next component pair to suggest, walking out from a just-mapped anchor pair. */
+  private chainSuggest(anchorLtRef: string, anchorKiRef: string): { ltRef: string; kiRef: string } | null {
+    const ltComps = this.sides.ltspice.comps;
+    const kiComps = this.sides.kicad.comps;
+    const anchorLt = ltComps.find((c) => c.ref === anchorLtRef);
+    const anchorKi = kiComps.find((c) => c.ref === anchorKiRef);
+    if (!anchorLt || !anchorKi) return null;
+    const res = chooseChainSuggestion({
+      anchorLt, anchorKi, ltComps, kiComps,
+      isMappedLt: (r) => this.store.isMapped("component", "ltspice", r),
+      isMappedKi: (r) => this.store.isMapped("component", "kicad", r),
+      netCounterpartLt: (net) => this.store.counterpart("net", "ltspice", net),
+    });
+    return res ? { ltRef: res.ltRef, kiRef: res.kiRef } : null;
   }
 
   /** Run net/component inference to a fixpoint; returns the number of mappings added. */

@@ -18,3 +18,5 @@ export { deserialize } from "./mapping/format.js";
 export type { MappingFile, Pair, Kind, Side } from "./mapping/format.js";
 export { Pairing } from "./interaction/pairing.js";
 export type { Selection, PairCandidate } from "./interaction/pairing.js";
+export { chooseChainSuggestion, parseValue, componentType } from "./suggest/chain.js";
+export type { ChainComp, ChainParams, ChainSuggestion } from "./suggest/chain.js";

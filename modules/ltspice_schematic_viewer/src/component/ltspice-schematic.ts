@@ -28,6 +28,7 @@ export interface ComponentInfo {
   value: string;
   symbol: string;
   nets: string[];
+  pos: { x: number; y: number };
 }
 
 export class LtspiceSchematicElement extends HTMLElement {
@@ -126,6 +127,7 @@ export class LtspiceSchematicElement extends HTMLElement {
         value: p.value,
         symbol: p.name,
         nets: [...(nl.componentToNets.get(p.ref) ?? [])].map((id) => nl.nets[id]!.name),
+        pos: { x: p.x, y: p.y },
       }));
   }
 

@@ -26,6 +26,7 @@ export interface ComponentInfo {
   value: string;
   libId: string;
   nets: string[];
+  pos: { x: number; y: number };
 }
 
 export class KicadSchematicElement extends HTMLElement {
@@ -140,6 +141,7 @@ export class KicadSchematicElement extends HTMLElement {
         value: i.value,
         libId: i.libId,
         nets: [...(nl.componentToNets.get(i.ref) ?? [])].map((id) => nl.nets[id]!.name),
+        pos: { x: i.placement.x, y: i.placement.y },
       }));
   }
 
