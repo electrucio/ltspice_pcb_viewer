@@ -27,10 +27,13 @@ correspondence between the two domains.
 Mapping is **deliberate** — clicking only selects, so a stray click never maps:
 
 - **Hover** over a net/part to preview it (distinct violet cue) before selecting.
-- Click a net/part on one side → **pending** selection (amber); likely matches on the
-  other side are **suggested** (blue). Suggestions never auto-apply.
-- Click the equivalent on the **other** side, then press **M** (or the **Map** button)
-  → the pair is mapped (both turn green). `Esc` clears, `U` unmaps.
+- Click a net/part on one side → **pending** selection (amber). If a likely match
+  exists on the other side it is **auto-selected** (blue) so you can map immediately —
+  but nothing maps until you confirm.
+- Press **M** (or the **Map** button) to map the selected pair (both turn green). Pick a
+  different item on the other side first if the suggestion is wrong. `Esc` clears, `U` unmaps.
+- Selecting a net highlights **only that net** (its wires/pins), not the bodies of the
+  components it connects to.
 - Selecting a fresh item resets cleanly (clicking a new item never re-lights a
   previously-mapped pair); clicking **empty space** unselects **both** sides.
 - Click an already-mapped item → both sides highlight green (cross-probe).

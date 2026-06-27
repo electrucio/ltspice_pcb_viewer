@@ -63,6 +63,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
   private sides!: Record<Side, SideState>;
   private statusEl!: HTMLElement;
   private countsEl!: HTMLElement;
+  private autoSide: Side | null = null; // side whose selection was auto-filled from a suggestion
   private onKey = (e: KeyboardEvent) => this.handleKey(e);
 
   constructor() {
@@ -101,6 +102,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
   loadMapping(file: string | object): { loaded: number; dropped: number } {
     const res = this.store.fromFile(file as string, this.available());
     this.pairing.clear();
+    this.autoSide = null;
     this.runInference();
     this.updateMarks();
     this.refresh();
@@ -212,6 +214,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
 
   private handleSelect(side: Side, kind: Kind, id: string): void {
     const other: Side = side === "ltspice" ? "kicad" : "ltspice";
+    this.autoSide = null;
     if (this.store.isMapped(kind, side, id)) {
       // a mapped item is always a single focus (cross-probed on both sides)
       this.pairing.setSingle(side, kind, id);
@@ -219,8 +222,14 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       // keep the other side only if we're actively building a pair with it
       const otherSel = this.pairing[other];
       const building = !!otherSel && otherSel.kind === kind && !this.store.isMapped(kind, other, otherSel.id);
-      if (building) this.pairing.select(side, kind, id);
-      else this.pairing.setSingle(side, kind, id);
+      if (building) {
+        this.pairing.select(side, kind, id);
+      } else {
+        this.pairing.setSingle(side, kind, id);
+        // auto-select the suggested counterpart so pressing M maps them right away
+        const sugg = this.store.suggest(kind, side, id, this.available());
+        if (sugg[0]) { this.pairing.select(other, kind, sugg[0]); this.autoSide = other; }
+      }
     }
     this.refresh();
     this.setStatus(this.selectStatus());
@@ -238,6 +247,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     const inferred = this.runInference();
     this.updateMarks();
     // focus the new pair as a single mapped selection (cross-probed green on both)
+    this.autoSide = null;
     this.pairing.setSingle("ltspice", m.kind, m.ltspice);
     this.updateCounts();
     this.emitChange();
@@ -249,6 +259,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     const removed = this.pairing.unmapActive();
     if (!removed) { this.setStatus("Select a mapped item first, then Unmap"); return; }
     this.pairing.clear();
+    this.autoSide = null;
     this.updateMarks();
     this.updateCounts();
     this.emitChange();
@@ -258,6 +269,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
 
   private clearSelection(): void {
     this.pairing.clear();
+    this.autoSide = null;
     this.refresh();
     this.setStatus("Selection cleared");
   }
@@ -324,28 +336,18 @@ export class LtspiceKicadMapperElement extends HTMLElement {
   /** Repaint the selection layer (marks are managed separately by updateMarks). */
   private refresh(): void {
     for (const side of ["ltspice", "kicad"] as Side[]) this.sides[side].viewer.clearHighlights();
-    const l = this.pairing.ltspice, k = this.pairing.kicad;
-    if (l) this.paintSelection("ltspice", l.kind, l.id);
-    if (k) this.paintSelection("kicad", k.kind, k.id);
-    if (l && !k && !this.store.isMapped(l.kind, "ltspice", l.id)) this.paintSuggestion("ltspice", l.kind, l.id);
-    if (k && !l && !this.store.isMapped(k.kind, "kicad", k.id)) this.paintSuggestion("kicad", k.kind, k.id);
-    this.renderLists();
-  }
-
-  private paintSelection(side: Side, kind: Kind, id: string): void {
-    if (this.store.isMapped(kind, side, id)) {
-      this.paint(side, kind, id, COLORS.mapped);
-      const other: Side = side === "ltspice" ? "kicad" : "ltspice";
-      this.paint(other, kind, this.store.counterpart(kind, side, id)!, COLORS.mapped);
-    } else {
-      this.paint(side, kind, id, COLORS.pending);
+    for (const side of ["ltspice", "kicad"] as Side[]) {
+      const sel = this.pairing[side];
+      if (!sel) continue;
+      if (this.store.isMapped(sel.kind, side, sel.id)) {
+        const other: Side = side === "ltspice" ? "kicad" : "ltspice";
+        this.paint(side, sel.kind, sel.id, COLORS.mapped);
+        this.paint(other, sel.kind, this.store.counterpart(sel.kind, side, sel.id)!, COLORS.mapped);
+      } else {
+        this.paint(side, sel.kind, sel.id, side === this.autoSide ? COLORS.suggestion : COLORS.pending);
+      }
     }
-  }
-
-  private paintSuggestion(side: Side, kind: Kind, id: string): void {
-    const other: Side = side === "ltspice" ? "kicad" : "ltspice";
-    const sugg = this.store.suggest(kind, side, id, this.available());
-    if (sugg[0]) this.paint(other, kind, sugg[0], COLORS.suggestion);
+    this.renderLists();
   }
 
   private paint(side: Side, kind: Kind, id: string, color: string): void {
@@ -358,7 +360,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
 
   private selectStatus(): string {
     const m = this.pairing.mappable();
-    if (m) return `Ready — press M to map ${m.kind} "${m.ltspice}" ↔ "${m.kicad}"`;
+    if (m) return `Ready — press M to map ${m.kind} "${m.ltspice}" ↔ "${m.kicad}"${this.autoSide ? " (suggested — press M, or pick another)" : ""}`;
     const l = this.pairing.ltspice, k = this.pairing.kicad;
     const sel = this.pairing.last ? this.pairing[this.pairing.last] : null;
     if (sel && this.pairing.last && this.store.isMapped(sel.kind, this.pairing.last, sel.id)) {

@@ -73,6 +73,8 @@ svg.ksv-panning { cursor: grabbing; }
 .ksv-wire.ksv-on, .ksv-pin.ksv-on, .ksv-junction.ksv-on { opacity: 1 !important; stroke: var(--ksv-highlight); }
 .ksv-junction.ksv-on { fill: var(--ksv-highlight); }
 .ksv-component.ksv-on { opacity: 1 !important; }
+/* host of a selected net: keep the component visible (pin shows) without recoloring it */
+.ksv-component.ksv-on-host { opacity: 1 !important; }
 .ksv-component.ksv-on .ksv-graphic { stroke: var(--ksv-select); }
 .ksv-component.ksv-on .ksv-graphic.fill-outline { fill: var(--ksv-select); }
 .ksv-label.ksv-on { opacity: 1 !important; }

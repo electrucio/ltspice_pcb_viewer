@@ -180,7 +180,7 @@ export class ViewerController {
 
   clearHighlights(): void {
     this.rootG().classList.remove("has-selection");
-    for (const elx of this.svg.querySelectorAll(".ksv-on,.ksv-sel")) elx.classList.remove("ksv-on", "ksv-sel");
+    for (const elx of this.svg.querySelectorAll(".ksv-on,.ksv-sel,.ksv-on-host")) elx.classList.remove("ksv-on", "ksv-sel", "ksv-on-host");
   }
 
   private cssEscape(v: string): string {
@@ -194,9 +194,9 @@ export class ViewerController {
     this.rootG().classList.add("has-selection");
     for (const elx of this.svg.querySelectorAll(`[data-net="${this.cssEscape(name)}"]`)) {
       elx.classList.add("ksv-on");
-      // also light up the parent component group so its body shows
+      // un-dim the parent component so the net's pin shows, but DON'T recolor its body
       const comp = (elx as Element).closest(".ksv-component");
-      if (comp) comp.classList.add("ksv-on");
+      if (comp) comp.classList.add("ksv-on-host");
     }
   }
 
