@@ -1,45 +1,51 @@
 export const STYLESHEET = `
 :host {
-  --bg: #0e1116; --panel: #161a20; --line: #262c34; --fg: #e6e8ea; --muted: #8b949e;
-  --accent: #ff8c00; --ok: #39d353; --pow: #4aa3ff;
+  --bg: #ffffff; --panel: #f3f5f8; --line: #c9d1da; --fg: #11161c; --muted: #5b6673;
+  --accent: #b35c00; --ok: #1a8f3c; --pow: #0a55c8; --primary: #1f6feb;
   display: block; height: 100%; color: var(--fg); background: var(--bg);
   font-family: ui-sans-serif, system-ui, sans-serif; font-size: 13px;
+}
+:host([data-theme="dark"]) {
+  --bg: #0e1116; --panel: #161a20; --line: #2b333d; --fg: #e6e8ea; --muted: #8b949e;
+  --accent: #ff8c00; --ok: #39d353; --pow: #4aa3ff; --primary: #4493f8;
 }
 * { box-sizing: border-box; }
 .wrap { display: flex; flex-direction: column; height: 100%; }
 
 .toolbar { flex: 0 0 auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
   padding: 8px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.toolbar .title { font-weight: 600; margin-right: 6px; }
-.toolbar button { position: relative; padding: 6px 10px; background: #1c222b; color: var(--fg);
-  border: 1px solid var(--line); border-radius: 6px; cursor: pointer; font: inherit; }
+.toolbar .title { font-weight: 700; margin-right: 6px; }
+.toolbar button { position: relative; padding: 6px 11px; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600; }
 .toolbar button:hover { border-color: var(--accent); }
-.counts { color: var(--muted); margin-left: auto; }
-.status { color: var(--accent); flex-basis: 100%; min-height: 1em; }
+.toolbar button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.toolbar button.primary:hover { filter: brightness(1.08); }
+.counts { color: var(--muted); margin-left: auto; font-weight: 600; }
+.status { color: var(--accent); flex-basis: 100%; min-height: 1em; font-weight: 600; }
 
 .panes { flex: 1 1 auto; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
 .pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); }
 .pane:last-child { border-right: none; }
 .pane > header { flex: 0 0 auto; display: flex; justify-content: space-between; align-items: baseline;
   padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.pane-title { font-weight: 600; }
+.pane-title { font-weight: 700; }
 .fname { color: var(--muted); font-size: 12px; }
 .viewer { flex: 1 1 60%; min-height: 0; display: block; }
 
 .lists { flex: 0 0 40%; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--line); background: var(--panel); }
 .tabs { display: flex; gap: 2px; padding: 6px 8px 0; flex: 0 0 auto; }
 .tab { flex: 1; padding: 5px; background: transparent; border: none; border-bottom: 2px solid transparent;
-  color: var(--muted); cursor: pointer; font: inherit; }
+  color: var(--muted); cursor: pointer; font: inherit; font-weight: 600; }
 .tab.active { color: var(--fg); border-bottom-color: var(--accent); }
-.filter { margin: 8px; padding: 6px 8px; background: #0e1116; border: 1px solid var(--line); border-radius: 6px; color: var(--fg); flex: 0 0 auto; }
+.filter { margin: 8px; padding: 6px 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; color: var(--fg); flex: 0 0 auto; }
 .list { flex: 1 1 auto; overflow: auto; padding: 4px 6px; min-height: 0; }
 .row { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; }
-.row:hover { background: #21262b; }
-.row.sel { outline: 1px solid var(--accent); background: #2c2317; }
-.row.mapped { background: #11241a; }
-.row.mapped.sel { background: #1d3326; }
-.row .name { font-variant-numeric: tabular-nums; }
+.row:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.row.sel { outline: 2px solid var(--accent); }
+.row.mapped { background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.row.mapped.sel { outline: 2px solid var(--ok); }
+.row .name { font-variant-numeric: tabular-nums; font-weight: 600; }
 .row .name.pow { color: var(--pow); }
 .row .meta { color: var(--muted); font-size: 12px; }
-.row .meta.ok { color: var(--ok); }
+.row .meta.ok { color: var(--ok); font-weight: 700; }
 `;

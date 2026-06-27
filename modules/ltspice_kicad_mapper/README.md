@@ -24,13 +24,26 @@ correspondence between the two domains.
 
 ## Interaction
 
-- Click a net/part on one side → it becomes the **pending** selection (amber); likely
-  matches on the other side are **suggested** (blue). Suggestions never auto-apply.
-- Click the equivalent on the **other** side → the pair is **mapped** (both turn green).
+Mapping is **deliberate** — clicking only selects, so a stray click never maps:
+
+- Click a net/part on one side → **pending** selection (amber); likely matches on the
+  other side are **suggested** (blue). Suggestions never auto-apply.
+- Click the equivalent on the **other** side, then press **M** (or the **Map** button)
+  → the pair is mapped (both turn green). `Esc` clears, `U` unmaps.
 - Click an already-mapped item → both sides highlight green (cross-probe).
 - **Unmap** breaks the active pair; **Clear** drops the selection.
 - The per-side **Nets/Components** lists show mapped status (`→ counterpart`) + counts.
+- When nothing is selected, every mapped net/part is **faintly marked** on both sides.
 - **Export mapping** downloads JSON; **Import mapping** restores it (stale ids pruned).
+
+### Inference (runs after every map / import)
+
+- If a mapped **component** has exactly one unmapped net on each side, those two nets
+  are mapped automatically.
+- If **all** of a component's nets are mapped and exactly one component on the other
+  side has the matching net set, the two components are mapped automatically.
+
+Both cascade to a fixpoint, so mapping a few nets often pulls in the rest.
 
 ## Architecture
 
@@ -74,5 +87,9 @@ npm run build   # bundle in dist/
 
 ## Limitations (v1)
 1:1 only (unmap to remap); suggestions match identical names/refs only (most nets are
-mapped manually because the tools' auto-names differ); mapped status is shown via list
-badges + selection cross-highlight (no persistent "show all mapped" tint).
+mapped manually because the tools' auto-names differ). The viewers run in light,
+high-contrast mode.
+
+> The "faint mark of all mapped items" relies on a small `markNets`/`markComponents`/
+> `clearMarks` API added to both viewer modules (a set-highlight independent of the
+> single selection, styled by the `--ksv-mark` CSS variable).

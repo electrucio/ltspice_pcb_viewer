@@ -199,6 +199,24 @@ export class ViewerController {
     for (const elx of this.svg.querySelectorAll(`.ksv-pin[data-ref="${this.cssEscape(ref)}"]`)) elx.classList.add("ksv-on");
   }
 
+  // ---- marks: faint persistent highlight of a SET, independent of selection ----
+
+  markNets(names: string[]): void {
+    for (const name of names)
+      for (const elx of this.svg.querySelectorAll(`[data-net="${this.cssEscape(name)}"]`)) elx.classList.add("ksv-mark");
+  }
+
+  markComponents(refs: string[]): void {
+    for (const ref of refs) {
+      const comp = this.svg.querySelector(`.ksv-component[data-ref="${this.cssEscape(ref)}"]`);
+      if (comp) comp.classList.add("ksv-mark");
+    }
+  }
+
+  clearMarks(): void {
+    for (const elx of this.svg.querySelectorAll(".ksv-mark")) elx.classList.remove("ksv-mark");
+  }
+
   zoomToNet(name: string): void {
     const net = this.netlist.byName.get(name);
     if (!net) return;

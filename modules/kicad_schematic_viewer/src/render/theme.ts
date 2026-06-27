@@ -15,7 +15,8 @@ export const STYLESHEET = `
   --ksv-text: #000000;
   --ksv-highlight: #ff8c00;
   --ksv-select: #ff2d2d;
-  --ksv-dim-opacity: 0.25;
+  --ksv-mark: #1a9e4b;
+  --ksv-dim-opacity: 0.22;
   display: block;
   position: relative;
   width: 100%;
@@ -36,14 +37,15 @@ export const STYLESHEET = `
   --ksv-text: #e8e8e8;
   --ksv-highlight: #ffb300;
   --ksv-select: #ff5252;
+  --ksv-mark: #39d353;
 }
 .ksv-root { width: 100%; height: 100%; }
 svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
 svg.ksv-panning { cursor: grabbing; }
 
-.ksv-wire { stroke: var(--ksv-wire); stroke-width: 0.15; fill: none; stroke-linecap: round; pointer-events: none; }
+.ksv-wire { stroke: var(--ksv-wire); stroke-width: 0.22; fill: none; stroke-linecap: round; pointer-events: none; }
 .ksv-junction { fill: var(--ksv-junction); stroke: none; }
-.ksv-pin { stroke: var(--ksv-pin); stroke-width: 0.15; fill: none; stroke-linecap: round; pointer-events: none; }
+.ksv-pin { stroke: var(--ksv-pin); stroke-width: 0.22; fill: none; stroke-linecap: round; pointer-events: none; }
 .ksv-graphic { stroke: var(--ksv-symbol); fill: none; stroke-linejoin: round; pointer-events: none; }
 
 /* invisible fat hit targets so thin wires/pins and symbol bodies are clickable */
@@ -73,4 +75,11 @@ svg.ksv-panning { cursor: grabbing; }
 
 .ksv-wire.ksv-sel, .ksv-pin.ksv-sel, .ksv-junction.ksv-sel { stroke: var(--ksv-select); stroke-width: 0.3; }
 .ksv-junction.ksv-sel { fill: var(--ksv-select); }
+
+/* marks: faint persistent highlight of mapped items (shown when idle) */
+.ksv-wire.ksv-mark, .ksv-pin.ksv-mark { stroke: var(--ksv-mark); stroke-width: 0.32; }
+.ksv-junction.ksv-mark { fill: var(--ksv-mark); }
+.ksv-component.ksv-mark .ksv-graphic { stroke: var(--ksv-mark); }
+.ksv-component.ksv-mark .ksv-graphic.fill-outline { fill: var(--ksv-mark); }
+.ksv-label.ksv-mark .ksv-label-text { fill: var(--ksv-mark); }
 `;

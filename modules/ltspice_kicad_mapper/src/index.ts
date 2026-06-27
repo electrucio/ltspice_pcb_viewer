@@ -17,4 +17,4 @@ export type { AvailableIds, MappingCounts } from "./mapping/store.js";
 export { deserialize } from "./mapping/format.js";
 export type { MappingFile, Pair, Kind, Side } from "./mapping/format.js";
 export { Pairing } from "./interaction/pairing.js";
-export type { Selection, PairingResult } from "./interaction/pairing.js";
+export type { Selection, PairCandidate } from "./interaction/pairing.js";

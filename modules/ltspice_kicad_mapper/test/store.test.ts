@@ -90,42 +90,48 @@ describe("MappingStore — import/export", () => {
   });
 });
 
-describe("Pairing state machine", () => {
-  it("pends on one side then maps on the other", () => {
+describe("Pairing state machine (deliberate: select both, confirm with M)", () => {
+  it("requires a selection on each side before it is mappable", () => {
     const s = new MappingStore();
-    const p = new Pairing(s, avail);
-    const r1 = p.select("ltspice", "net", "VCC");
-    expect(r1.type).toBe("pending");
-    const r2 = p.select("kicad", "net", "POW");
-    expect(r2).toMatchObject({ type: "created", ltspice: "VCC", kicad: "POW" });
+    const p = new Pairing(s);
+    p.select("ltspice", "net", "VCC");
+    expect(p.mappable()).toBeNull(); // only one side selected
+    expect(p.confirm()).toBeNull();
+    expect(s.counts().nets).toBe(0);
+    p.select("kicad", "net", "POW");
+    expect(p.mappable()).toMatchObject({ kind: "net", ltspice: "VCC", kicad: "POW" });
+    expect(p.confirm()).toMatchObject({ ltspice: "VCC", kicad: "POW" });
     expect(s.counterpart("net", "ltspice", "VCC")).toBe("POW");
   });
-  it("selecting a mapped item reports the pair without remapping", () => {
+  it("is not mappable when either side is already mapped", () => {
     const s = new MappingStore();
     s.map("net", "VCC", "POW");
-    const p = new Pairing(s, avail);
-    expect(p.select("kicad", "net", "POW")).toMatchObject({ type: "mapped", ltspice: "VCC", kicad: "POW" });
+    const p = new Pairing(s);
+    p.select("ltspice", "net", "VCC"); // already mapped
+    p.select("kicad", "net", "Net-(C4-Pad2)");
+    expect(p.mappable()).toBeNull();
+    expect(p.confirm()).toBeNull();
   });
-  it("two selects on the same side just move the pending (no mapping)", () => {
+  it("is not mappable across different kinds", () => {
     const s = new MappingStore();
-    const p = new Pairing(s, avail);
+    const p = new Pairing(s);
     p.select("ltspice", "net", "VCC");
-    const r = p.select("ltspice", "net", "FEEDBACK");
-    expect(r.type).toBe("pending");
-    expect(s.counts().nets).toBe(0);
-  });
-  it("does not cross-map different kinds", () => {
-    const s = new MappingStore();
-    const p = new Pairing(s, avail);
-    p.select("ltspice", "net", "VCC");
-    const r = p.select("kicad", "component", "R1");
-    expect(r.type).toBe("pending"); // component pending, net still pending-less map not made
+    p.select("kicad", "component", "R1");
+    expect(p.mappable()).toBeNull();
     expect(s.counts()).toEqual({ nets: 0, components: 0 });
   });
-  it("unmaps the active pair", () => {
+  it("re-selecting the same side replaces that side's selection", () => {
+    const s = new MappingStore();
+    const p = new Pairing(s);
+    p.select("ltspice", "net", "VCC");
+    p.select("ltspice", "net", "FEEDBACK");
+    expect(p.ltspice).toMatchObject({ id: "FEEDBACK" });
+    expect(p.mappable()).toBeNull();
+  });
+  it("unmaps the last-clicked mapped item", () => {
     const s = new MappingStore();
     s.map("net", "VCC", "POW");
-    const p = new Pairing(s, avail);
+    const p = new Pairing(s);
     p.select("ltspice", "net", "VCC");
     expect(p.unmapActive()).toMatchObject({ kind: "net", ltspice: "VCC", kicad: "POW" });
     expect(s.counts().nets).toBe(0);

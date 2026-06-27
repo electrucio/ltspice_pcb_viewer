@@ -1,86 +1,72 @@
 /**
  * Pairing state machine (DOM-free, unit-testable).
  *
- * Drives the "select on one side, click the equivalent on the other to map" flow:
- *   - selecting a mapped item just activates it (its pair is shown);
- *   - selecting an unmapped item while an unmapped item of the same kind is pending
- *     on the OTHER side creates the mapping;
- *   - otherwise the item becomes the pending selection and the other side gets
- *     suggestions.
+ * Selection is *deliberate*, not sticky: clicking only selects (one current
+ * selection per side). A mapping is created only when the user confirms
+ * (presses M / the Map button). This avoids accidental mappings from stray clicks.
  *
- * It only mutates the MappingStore and tracks `active`/`pending`; the component reads
- * `active`/`pending` to paint highlights (pending=amber, mapped=green, suggestion=blue).
+ *   select("ltspice", "net", "VCC")   // highlight on the left
+ *   select("kicad",   "net", "POW")   // highlight on the right
+ *   confirm()                          // -> maps VCC <-> POW
  */
 
-import type { AvailableIds, MappingStore } from "../mapping/store.js";
+import type { MappingStore } from "../mapping/store.js";
 import type { Kind, Side } from "../mapping/format.js";
 
 export interface Selection {
-  side: Side;
   kind: Kind;
   id: string;
 }
 
-export type PairingResult =
-  | { type: "mapped"; kind: Kind; ltspice: string; kicad: string } // active item is mapped
-  | { type: "created"; kind: Kind; ltspice: string; kicad: string } // a new mapping was made
-  | { type: "pending"; selection: Selection; suggestions: string[] } // waiting for the other side
-  | { type: "cleared" };
+export interface PairCandidate {
+  kind: Kind;
+  ltspice: string;
+  kicad: string;
+}
 
 export class Pairing {
-  active: Selection | null = null;
-  pending: Selection | null = null;
+  ltspice: Selection | null = null;
+  kicad: Selection | null = null;
+  last: Side | null = null;
 
-  constructor(
-    private readonly store: MappingStore,
-    private readonly available: () => AvailableIds,
-  ) {}
+  constructor(private readonly store: MappingStore) {}
 
-  select(side: Side, kind: Kind, id: string): PairingResult {
-    this.active = { side, kind, id };
-
-    // 1) already mapped -> just show the pair
-    if (this.store.isMapped(kind, side, id)) {
-      this.pending = null;
-      return this.mappedResult(kind, side, id);
-    }
-
-    // 2) complete a pending pair (opposite side, same kind, both unmapped)
-    const p = this.pending;
-    if (p && p.kind === kind && p.side !== side && !this.store.isMapped(kind, p.side, p.id)) {
-      const ltspice = side === "ltspice" ? id : p.id;
-      const kicad = side === "kicad" ? id : p.id;
-      this.store.map(kind, ltspice, kicad);
-      this.pending = null;
-      return { type: "created", kind, ltspice, kicad };
-    }
-
-    // 3) become the pending selection; offer suggestions on the other side
-    this.pending = { side, kind, id };
-    return { type: "pending", selection: this.pending, suggestions: this.store.suggest(kind, side, id, this.available()) };
-  }
-
-  /** Remove the mapping of the currently active item (if any). */
-  unmapActive(): { kind: Kind; ltspice: string; kicad: string } | null {
-    const a = this.active;
-    if (!a || !this.store.isMapped(a.kind, a.side, a.id)) return null;
-    const counterpart = this.store.counterpart(a.kind, a.side, a.id)!;
-    const ltspice = a.side === "ltspice" ? a.id : counterpart;
-    const kicad = a.side === "kicad" ? a.id : counterpart;
-    this.store.unmap(a.kind, a.side, a.id);
-    this.pending = null;
-    return { kind: a.kind, ltspice, kicad };
+  select(side: Side, kind: Kind, id: string): void {
+    this[side] = { kind, id };
+    this.last = side;
   }
 
   clear(): void {
-    this.active = null;
-    this.pending = null;
+    this.ltspice = null;
+    this.kicad = null;
+    this.last = null;
   }
 
-  private mappedResult(kind: Kind, side: Side, id: string): PairingResult {
-    const counterpart = this.store.counterpart(kind, side, id)!;
-    const ltspice = side === "ltspice" ? id : counterpart;
-    const kicad = side === "kicad" ? id : counterpart;
-    return { type: "mapped", kind, ltspice, kicad };
+  /** The pair that pressing M would map: both sides selected, same kind, both unmapped. */
+  mappable(): PairCandidate | null {
+    const l = this.ltspice, k = this.kicad;
+    if (!l || !k || l.kind !== k.kind) return null;
+    if (this.store.isMapped(l.kind, "ltspice", l.id) || this.store.isMapped(k.kind, "kicad", k.id)) return null;
+    return { kind: l.kind, ltspice: l.id, kicad: k.id };
+  }
+
+  /** Create the mapping if one is ready; keeps the pair selected for feedback. */
+  confirm(): PairCandidate | null {
+    const m = this.mappable();
+    if (!m) return null;
+    this.store.map(m.kind, m.ltspice, m.kicad);
+    return m;
+  }
+
+  /** The currently active (last-clicked) item, if it is mapped — target for Unmap. */
+  unmapActive(): PairCandidate | null {
+    if (!this.last) return null;
+    const sel = this[this.last];
+    if (!sel || !this.store.isMapped(sel.kind, this.last, sel.id)) return null;
+    const counterpart = this.store.counterpart(sel.kind, this.last, sel.id)!;
+    const ltspice = this.last === "ltspice" ? sel.id : counterpart;
+    const kicad = this.last === "kicad" ? sel.id : counterpart;
+    this.store.unmap(sel.kind, this.last, sel.id);
+    return { kind: sel.kind, ltspice, kicad };
   }
 }

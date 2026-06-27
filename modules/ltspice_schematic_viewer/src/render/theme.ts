@@ -18,6 +18,7 @@ export const STYLESHEET = `
   --ksv-directive: #58c0a8;
   --ksv-highlight: #ff8c00;
   --ksv-select: #ff3b3b;
+  --ksv-mark: #39d353;
   --ksv-dim-opacity: 0.22;
   display: block; position: relative; width: 100%; height: 100%;
   overflow: hidden; background: var(--ksv-bg);
@@ -35,15 +36,16 @@ export const STYLESHEET = `
   --ksv-ground: #555;
   --ksv-comment: #6e7681;
   --ksv-directive: #0b7a5e;
+  --ksv-mark: #1a9e4b;
 }
 .ksv-root { width: 100%; height: 100%; }
 svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
 svg.ksv-panning { cursor: grabbing; }
 
-.ksv-wire { stroke: var(--ksv-wire); stroke-width: 1.6px; fill: none; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+.ksv-wire { stroke: var(--ksv-wire); stroke-width: 1.9px; fill: none; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
 .ksv-junction { fill: var(--ksv-junction); stroke: none; }
-.ksv-pin { stroke: var(--ksv-pin); stroke-width: 1.4px; fill: none; vector-effect: non-scaling-stroke; pointer-events: none; }
-.ksv-graphic { stroke: var(--ksv-symbol); fill: none; stroke-width: 1.4px; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+.ksv-pin { stroke: var(--ksv-pin); stroke-width: 1.7px; fill: none; vector-effect: non-scaling-stroke; pointer-events: none; }
+.ksv-graphic { stroke: var(--ksv-symbol); fill: none; stroke-width: 1.7px; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
 .ksv-ground { stroke: var(--ksv-ground); stroke-width: 1.4px; fill: none; vector-effect: non-scaling-stroke; pointer-events: none; }
 text { fill: var(--ksv-symbol); }
 .ksv-ref { fill: var(--ksv-ref); }
@@ -72,4 +74,10 @@ text { fill: var(--ksv-symbol); }
 .ksv-label.ksv-on .ksv-label-text { fill: var(--ksv-highlight); }
 
 .ksv-wire.ksv-sel, .ksv-pin.ksv-sel { stroke: var(--ksv-select); }
+
+/* marks: faint persistent highlight of mapped items (shown when idle) */
+.ksv-wire.ksv-mark, .ksv-pin.ksv-mark { stroke: var(--ksv-mark); stroke-width: 2.6px; }
+.ksv-junction.ksv-mark { fill: var(--ksv-mark); }
+.ksv-component.ksv-mark .ksv-graphic { stroke: var(--ksv-mark); }
+.ksv-label.ksv-mark .ksv-label-text { fill: var(--ksv-mark); }
 `;
