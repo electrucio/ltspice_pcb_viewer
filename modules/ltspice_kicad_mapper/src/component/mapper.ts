@@ -102,6 +102,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     const res = this.store.fromFile(file as string, this.available());
     this.pairing.clear();
     this.runInference();
+    this.updateMarks();
     this.refresh();
     this.updateCounts();
     this.emitChange();
@@ -190,16 +191,19 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       st.nets = viewer.getNets();
       st.comps = viewer.getComponents();
       fname.textContent = st.source || `${st.nets.length} nets · ${st.comps.length} parts`;
+      this.updateMarks();
       this.refresh();
       this.updateCounts();
     });
     viewer.addEventListener("netselect", (e) => {
       const d = (e as CustomEvent).detail as { name: string } | null;
       if (d) this.handleSelect(side, "net", d.name);
+      else this.clearSelection(); // clicked empty space -> unselect both sides
     });
     viewer.addEventListener("componentselect", (e) => {
       const d = (e as CustomEvent).detail as { ref: string } | null;
       if (d) this.handleSelect(side, "component", d.ref);
+      else this.clearSelection();
     });
     return st;
   }
@@ -207,7 +211,17 @@ export class LtspiceKicadMapperElement extends HTMLElement {
   // ---- selection / mapping ----------------------------------------------
 
   private handleSelect(side: Side, kind: Kind, id: string): void {
-    this.pairing.select(side, kind, id);
+    const other: Side = side === "ltspice" ? "kicad" : "ltspice";
+    if (this.store.isMapped(kind, side, id)) {
+      // a mapped item is always a single focus (cross-probed on both sides)
+      this.pairing.setSingle(side, kind, id);
+    } else {
+      // keep the other side only if we're actively building a pair with it
+      const otherSel = this.pairing[other];
+      const building = !!otherSel && otherSel.kind === kind && !this.store.isMapped(kind, other, otherSel.id);
+      if (building) this.pairing.select(side, kind, id);
+      else this.pairing.setSingle(side, kind, id);
+    }
     this.refresh();
     this.setStatus(this.selectStatus());
   }
@@ -221,10 +235,10 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       this.setStatus(`Can't map — ${why}`);
       return;
     }
-    // keep the new pair selected for green feedback
-    this.pairing.select("ltspice", m.kind, m.ltspice);
-    this.pairing.select("kicad", m.kind, m.kicad);
     const inferred = this.runInference();
+    this.updateMarks();
+    // focus the new pair as a single mapped selection (cross-probed green on both)
+    this.pairing.setSingle("ltspice", m.kind, m.ltspice);
     this.updateCounts();
     this.emitChange();
     this.refresh();
@@ -234,6 +248,8 @@ export class LtspiceKicadMapperElement extends HTMLElement {
   private unmapActive(): void {
     const removed = this.pairing.unmapActive();
     if (!removed) { this.setStatus("Select a mapped item first, then Unmap"); return; }
+    this.pairing.clear();
+    this.updateMarks();
     this.updateCounts();
     this.emitChange();
     this.refresh();
@@ -295,36 +311,25 @@ export class LtspiceKicadMapperElement extends HTMLElement {
 
   // ---- highlighting ------------------------------------------------------
 
-  private clearAll(): void {
+  /** Persistent marks: every mapped net/part is marked (thicker) on both sides, always. */
+  private updateMarks(): void {
     for (const side of ["ltspice", "kicad"] as Side[]) {
-      this.sides[side].viewer.clearHighlights();
-      this.sides[side].viewer.clearMarks();
+      const v = this.sides[side].viewer;
+      v.clearMarks();
+      v.markNets(this.store.entries("net").map((p) => p[side]));
+      v.markComponents(this.store.entries("component").map((p) => p[side]));
     }
   }
 
-  /** Repaint highlights/marks from the current selection + store, and refresh lists. */
+  /** Repaint the selection layer (marks are managed separately by updateMarks). */
   private refresh(): void {
-    this.clearAll();
+    for (const side of ["ltspice", "kicad"] as Side[]) this.sides[side].viewer.clearHighlights();
     const l = this.pairing.ltspice, k = this.pairing.kicad;
-
-    if (!l && !k) {
-      this.showMarks();
-    } else {
-      if (l) this.paintSelection("ltspice", l.kind, l.id);
-      if (k) this.paintSelection("kicad", k.kind, k.id);
-      if (l && !k && !this.store.isMapped(l.kind, "ltspice", l.id)) this.paintSuggestion("ltspice", l.kind, l.id);
-      if (k && !l && !this.store.isMapped(k.kind, "kicad", k.id)) this.paintSuggestion("kicad", k.kind, k.id);
-    }
+    if (l) this.paintSelection("ltspice", l.kind, l.id);
+    if (k) this.paintSelection("kicad", k.kind, k.id);
+    if (l && !k && !this.store.isMapped(l.kind, "ltspice", l.id)) this.paintSuggestion("ltspice", l.kind, l.id);
+    if (k && !l && !this.store.isMapped(k.kind, "kicad", k.id)) this.paintSuggestion("kicad", k.kind, k.id);
     this.renderLists();
-  }
-
-  private showMarks(): void {
-    for (const side of ["ltspice", "kicad"] as Side[]) {
-      const nets = this.store.entries("net").map((p) => p[side]);
-      const comps = this.store.entries("component").map((p) => p[side]);
-      this.sides[side].viewer.markNets(nets);
-      this.sides[side].viewer.markComponents(comps);
-    }
   }
 
   private paintSelection(side: Side, kind: Kind, id: string): void {

@@ -31,7 +31,16 @@ export class Pairing {
 
   constructor(private readonly store: MappingStore) {}
 
+  /** Add/replace this side's selection, keeping the other side (used while building a pair). */
   select(side: Side, kind: Kind, id: string): void {
+    this[side] = { kind, id };
+    this.last = side;
+  }
+
+  /** Select exactly this one item, clearing the other side (a fresh, single focus). */
+  setSingle(side: Side, kind: Kind, id: string): void {
+    this.ltspice = null;
+    this.kicad = null;
     this[side] = { kind, id };
     this.last = side;
   }

@@ -28,7 +28,7 @@ export class ViewerController {
   private dragging = false;
   private moved = false;
   private last = { x: 0, y: 0 };
-  private hoverNet: string | null = null;
+  private hoverKey: string | null = null;
   private downHit: { net?: string; ref?: string } = {};
 
   constructor(
@@ -118,7 +118,7 @@ export class ViewerController {
     };
     this.svg.addEventListener("pointerup", end);
     this.svg.addEventListener("pointerleave", () => {
-      if (this.hoverNet !== null) { this.hoverNet = null; this.events.onNetHover?.(null); }
+      if (this.hoverKey !== null) { this.hoverKey = null; this.clearHover(); this.events.onNetHover?.(null); }
     });
   }
 
@@ -136,11 +136,24 @@ export class ViewerController {
 
   private handleHover(e: PointerEvent): void {
     const hit = this.hitFrom(e);
-    const net = hit.net ?? null;
-    if (net !== this.hoverNet) {
-      this.hoverNet = net;
-      this.events.onNetHover?.(net);
-      if (hit.ref) this.events.onComponentHover?.(hit.ref);
+    const key = hit.net ? `net:${hit.net}` : hit.ref ? `ref:${hit.ref}` : null;
+    if (key === this.hoverKey) return;
+    this.hoverKey = key;
+    this.applyHover(hit);
+    this.events.onNetHover?.(hit.net ?? null);
+    if (hit.ref) this.events.onComponentHover?.(hit.ref);
+  }
+
+  private clearHover(): void {
+    for (const elx of this.svg.querySelectorAll(".ksv-hover")) elx.classList.remove("ksv-hover");
+  }
+
+  private applyHover(hit: { net?: string; ref?: string }): void {
+    this.clearHover();
+    if (hit.net) {
+      for (const elx of this.svg.querySelectorAll(`[data-net="${this.cssEscape(hit.net)}"]`)) elx.classList.add("ksv-hover");
+    } else if (hit.ref) {
+      this.svg.querySelector(`.ksv-component[data-ref="${this.cssEscape(hit.ref)}"]`)?.classList.add("ksv-hover");
     }
   }
 

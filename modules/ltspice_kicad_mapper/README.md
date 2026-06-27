@@ -26,14 +26,18 @@ correspondence between the two domains.
 
 Mapping is **deliberate** — clicking only selects, so a stray click never maps:
 
+- **Hover** over a net/part to preview it (distinct violet cue) before selecting.
 - Click a net/part on one side → **pending** selection (amber); likely matches on the
   other side are **suggested** (blue). Suggestions never auto-apply.
 - Click the equivalent on the **other** side, then press **M** (or the **Map** button)
   → the pair is mapped (both turn green). `Esc` clears, `U` unmaps.
+- Selecting a fresh item resets cleanly (clicking a new item never re-lights a
+  previously-mapped pair); clicking **empty space** unselects **both** sides.
 - Click an already-mapped item → both sides highlight green (cross-probe).
 - **Unmap** breaks the active pair; **Clear** drops the selection.
+- Every mapped net/part is **always drawn slightly thicker** (marked) on both sides, so
+  what's done stays visible while you work.
 - The per-side **Nets/Components** lists show mapped status (`→ counterpart`) + counts.
-- When nothing is selected, every mapped net/part is **faintly marked** on both sides.
 - **Export mapping** downloads JSON; **Import mapping** restores it (stale ids pruned).
 
 ### Inference (runs after every map / import)

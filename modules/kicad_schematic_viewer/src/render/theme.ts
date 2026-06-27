@@ -16,6 +16,7 @@ export const STYLESHEET = `
   --ksv-highlight: #ff8c00;
   --ksv-select: #ff2d2d;
   --ksv-mark: #1a9e4b;
+  --ksv-hover: #8957e5;
   --ksv-dim-opacity: 0.22;
   display: block;
   position: relative;
@@ -38,6 +39,7 @@ export const STYLESHEET = `
   --ksv-highlight: #ffb300;
   --ksv-select: #ff5252;
   --ksv-mark: #39d353;
+  --ksv-hover: #c08bff;
 }
 .ksv-root { width: 100%; height: 100%; }
 svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
@@ -65,6 +67,8 @@ svg.ksv-panning { cursor: grabbing; }
 .ksv-root.has-selection .ksv-junction,
 .ksv-root.has-selection .ksv-component,
 .ksv-root.has-selection .ksv-label { opacity: var(--ksv-dim-opacity); transition: opacity .08s; }
+/* mapped (marked) items stay more visible than other dimmed items during a selection */
+.ksv-root.has-selection .ksv-mark { opacity: 0.6; }
 
 .ksv-wire.ksv-on, .ksv-pin.ksv-on, .ksv-junction.ksv-on { opacity: 1 !important; stroke: var(--ksv-highlight); }
 .ksv-junction.ksv-on { fill: var(--ksv-highlight); }
@@ -82,4 +86,12 @@ svg.ksv-panning { cursor: grabbing; }
 .ksv-component.ksv-mark .ksv-graphic { stroke: var(--ksv-mark); }
 .ksv-component.ksv-mark .ksv-graphic.fill-outline { fill: var(--ksv-mark); }
 .ksv-label.ksv-mark .ksv-label-text { fill: var(--ksv-mark); }
+
+/* hover: distinct cue while pointing at a net/part (independent of selection/marks) */
+.ksv-wire.ksv-hover, .ksv-pin.ksv-hover { stroke: var(--ksv-hover); stroke-width: 0.4; opacity: 1 !important; }
+.ksv-junction.ksv-hover { fill: var(--ksv-hover); opacity: 1 !important; }
+.ksv-component.ksv-hover { opacity: 1 !important; }
+.ksv-component.ksv-hover .ksv-graphic { stroke: var(--ksv-hover); }
+.ksv-component.ksv-hover .ksv-graphic.fill-outline { fill: var(--ksv-hover); }
+.ksv-label.ksv-hover .ksv-label-text { fill: var(--ksv-hover); }
 `;
