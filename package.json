@@ -1,0 +1,31 @@
+{
+  "name": "kicad-schematic-viewer",
+  "version": "0.1.0",
+  "description": "Framework-agnostic web component to visualize, explore, and highlight nets and components from KiCad schematics (.kicad_sch).",
+  "type": "module",
+  "main": "./dist/kicad-schematic-viewer.js",
+  "module": "./dist/kicad-schematic-viewer.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/kicad-schematic-viewer.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "vite demo",
+    "build": "tsc --emitDeclarationOnly && vite build",
+    "preview": "vite preview demo",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["kicad", "schematic", "eda", "web-component", "netlist", "svg"],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0",
+    "vitest": "^2.1.0"
+  }
+}
