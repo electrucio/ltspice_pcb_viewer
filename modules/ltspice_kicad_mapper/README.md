@@ -71,8 +71,11 @@ to find. If the suggestion is wrong, click the correct counterpart before pressi
   are mapped automatically.
 - If **all** of a component's nets are mapped and exactly one component on the other
   side has the matching net set, the two components are mapped automatically.
+- If **all** components connected to a net are mapped and exactly one net on the other
+  side connects to the matching set of components, the two nets are mapped automatically.
 
-Both cascade to a fixpoint, so mapping a few nets often pulls in the rest.
+All cascade to a fixpoint and run on **every** confirmed mapping — manual *and* chained —
+so mapping a handful of components pulls in most of their nets (and vice versa).
 
 ## Architecture
 

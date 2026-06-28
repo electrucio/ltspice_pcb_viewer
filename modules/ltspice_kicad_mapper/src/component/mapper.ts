@@ -24,7 +24,7 @@ import { chooseChainSuggestion } from "../suggest/chain.js";
 import { STYLESHEET } from "./style.js";
 
 interface CompInfo { ref: string; value: string; nets: string[]; pos: { x: number; y: number } }
-interface NetInfoLite { name: string; isPower: boolean }
+interface NetInfoLite { name: string; isPower: boolean; pins: { ref: string }[] }
 
 /** Structural view of either viewer element (common subset the mapper uses). */
 interface ViewerElement extends HTMLElement {
@@ -350,6 +350,23 @@ export class LtspiceKicadMapperElement extends HTMLElement {
           total++; changed = true;
         }
       }
+
+      // (c) a net whose connected components are all mapped -> the unique other-side net with the matching component set
+      for (const net of this.sides.ltspice.nets) {
+        if (this.store.isMapped("net", "ltspice", net.name)) continue;
+        const comps = netComponentRefs(net);
+        if (comps.length === 0 || !comps.every((r) => this.store.isMapped("component", "ltspice", r))) continue;
+        const target = new Set(comps.map((r) => this.store.counterpart("component", "ltspice", r)!));
+        const candidates = this.sides.kicad.nets.filter((kn) => {
+          if (this.store.isMapped("net", "kicad", kn.name)) return false;
+          const kr = netComponentRefs(kn);
+          return kr.length === target.size && kr.every((r) => target.has(r));
+        });
+        if (candidates.length === 1) {
+          this.store.map("net", net.name, candidates[0]!.name);
+          total++; changed = true;
+        }
+      }
     }
     return total;
   }
@@ -507,6 +524,11 @@ export class LtspiceKicadMapperElement extends HTMLElement {
 
 function basename(url: string): string {
   return url.split(/[\\/]/).pop() ?? url;
+}
+
+/** Unique real-component refs on a net (excludes power-symbol pins like #GND01). */
+function netComponentRefs(net: { pins: { ref: string }[] }): string[] {
+  return [...new Set(net.pins.map((p) => p.ref).filter((r) => r && !r.startsWith("#")))];
 }
 
 function h<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] {
