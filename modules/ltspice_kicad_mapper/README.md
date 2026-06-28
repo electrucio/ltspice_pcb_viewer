@@ -53,10 +53,14 @@ cluster by pressing **M** repeatedly. Candidates are components *adjacent to the
 - same type (R/C/D/L/Q) — a hard gate; other parts (pots, sources, connectors) are left
   to manual mapping;
 - shared already-mapped nets (topology) — strongest signal;
-- same reference designator and/or same value (engineering-aware: `4k7` == `4.7k`);
+- shared already-mapped **component** neighbors — if a candidate connects to a mapped
+  component, the other-side candidate that connects to its mapped counterpart scores
+  higher (this compounds as the chain grows);
+- same value (engineering-aware: `4k7` == `4.7k`);
 - **proximity** to the anchor — the nearest directly-connected neighbor is preferred, so
-  the chain crawls locally instead of jumping around;
-- similar geometric direction from the anchor — a weak tie-breaker.
+  the chain crawls locally instead of jumping around; direction is a final tie-breaker.
+
+Reference designators are **not** used — they frequently differ between the two tools.
 
 Both schematics **auto-zoom** to the anchor + suggestion, so the suggested parts are easy
 to find. If the suggestion is wrong, click the correct counterpart before pressing M.

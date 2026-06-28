@@ -6,9 +6,11 @@
  * it). A candidate pair is scored by:
  *   - same component type (R/C/D/L/Q) — a hard gate;
  *   - number of shared already-mapped nets (topological agreement) — strongest;
- *   - same reference designator (e.g. R4 ↔ R4);
+ *   - shared already-mapped *component* neighbors: a candidate connecting to a mapped
+ *     component scores higher when its other-side partner connects to that component's
+ *     mapped counterpart (reference designators are NOT used — they change between tools);
  *   - same value (engineering-notation aware: 4k7 == 4.7k, 3u3 == 3.3µ);
- *   - similar geometric direction from the anchor (weak tie-breaker).
+ *   - proximity / direction from the anchor (tie-breakers, keep the chain local).
  *
  * Only "easy" passive/discrete types are suggested; everything else is left to manual
  * mapping. Pure and DOM-free so it can be unit-tested.
@@ -30,6 +32,8 @@ export interface ChainParams {
   isMappedKi: (ref: string) => boolean;
   /** ltspice net name -> mapped kicad net name (or undefined) */
   netCounterpartLt: (net: string) => string | undefined;
+  /** ltspice component ref -> mapped kicad component ref (or undefined) */
+  componentCounterpartLt: (ref: string) => string | undefined;
 }
 
 export interface ChainSuggestion {
@@ -91,21 +95,31 @@ export function chooseChainSuggestion(p: ChainParams): ChainSuggestion | null {
 
   let best: ChainSuggestion | null = null;
   for (const n of ltN) {
+    // kicad counterparts of the already-mapped components that N connects to (on the lt side)
+    const expectedKiNeighbors = new Set(
+      p.ltComps
+        .filter((c) => c.ref !== n.ref && p.isMappedLt(c.ref) && sharesNet(c, n))
+        .map((c) => p.componentCounterpartLt(c.ref))
+        .filter((r): r is string => !!r),
+    );
     for (const mc of kiN) {
       if (componentType(n.ref) !== componentType(mc.ref)) continue; // type gate
       const sharedMapped = n.nets.filter((net) => {
         const cp = p.netCounterpartLt(net);
         return cp != null && mc.nets.includes(cp);
       }).length;
-      const sameRef = n.ref.toLowerCase() === mc.ref.toLowerCase();
+      // does mc connect to the same already-mapped components (by mapping) that n connects to?
+      const sharedMappedNeighbors = p.kiComps.filter(
+        (c) => c.ref !== mc.ref && expectedKiNeighbors.has(c.ref) && sharesNet(c, mc),
+      ).length;
       const valueMatch = valuesMatch(n.value, mc.value);
-      if (!(sharedMapped > 0 || sameRef || valueMatch)) continue; // need a real signal beyond type
+      if (!(sharedMapped > 0 || valueMatch || sharedMappedNeighbors > 0)) continue; // need a real signal beyond type
       const d1 = unit(n.pos.x - p.anchorLt.pos.x, n.pos.y - p.anchorLt.pos.y);
       const d2 = unit(mc.pos.x - p.anchorKi.pos.x, mc.pos.y - p.anchorKi.pos.y);
       const dir = d1 && d2 ? Math.max(0, d1.x * d2.x + d1.y * d2.y) : 0;
       // prefer the nearest neighbor on each side, so the chain stays local & easy to find
       const proximity = (1 - dist(n, p.anchorLt) / maxLt) * 0.5 + (1 - dist(mc, p.anchorKi) / maxKi) * 0.5;
-      const score = 3 * sharedMapped + (sameRef ? 4 : 0) + (valueMatch ? 3 : 0) + 0.5 * dir + proximity;
+      const score = 3 * sharedMapped + 2 * sharedMappedNeighbors + (valueMatch ? 3 : 0) + 0.5 * dir + proximity;
       if (!best || score > best.score) best = { ltRef: n.ref, kiRef: mc.ref, score };
     }
   }
