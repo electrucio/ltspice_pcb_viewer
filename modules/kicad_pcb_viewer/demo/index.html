@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>kicad_pcb_viewer — poweramp demo</title>
+    <style>
+      :root { --bg:#0e1116; --panel:#161a20; --line:#2b333d; --fg:#e6e8ea; --muted:#8b949e; --accent:#ff8c00; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body { display: grid; grid-template-columns: 250px 1fr; height: 100vh; font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+      aside { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+      header { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+      header h1 { font-size: 14px; margin: 0 0 2px; } header p { margin: 0; color: var(--muted); font-size: 12px; }
+      .sec { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+      .sec h2 { font-size: 11px; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; letter-spacing: .04em; }
+      label { display: flex; align-items: center; gap: 7px; padding: 3px 0; cursor: pointer; }
+      .list { overflow: auto; flex: 1; padding: 6px; min-height: 0; }
+      .row { padding: 5px 9px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+      .row:hover { background: #21262b; } .row.sel { outline: 1px solid var(--accent); background: #2c2317; }
+      .row .meta { color: var(--muted); }
+      .tabs { display: flex; gap: 2px; padding: 6px 8px 0; }
+      .tabs button { flex: 1; padding: 5px; background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--muted); cursor: pointer; font: inherit; }
+      .tabs button.active { color: var(--fg); border-bottom-color: var(--accent); }
+      input[type=search] { width: 100%; padding: 6px 8px; background: #0e1116; border: 1px solid var(--line); border-radius: 6px; color: var(--fg); }
+      main { position: relative; min-width: 0; }
+      kicad-pcb { width: 100%; height: 100%; }
+      .toolbar { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
+      .toolbar button { padding: 6px 10px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+      .status { position: absolute; left: 12px; bottom: 12px; background: rgba(20,23,26,.85); padding: 6px 10px; border-radius: 6px; color: var(--muted); }
+      .status b { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <header><h1>KiCad PCB Viewer</h1><p>poweramp.kicad_pcb</p></header>
+      <div class="sec"><h2>Layers</h2><div id="layers"></div></div>
+      <div class="tabs"><button id="tab-nets" class="active">Nets</button><button id="tab-comps">Parts</button></div>
+      <div class="sec"><input id="q" type="search" placeholder="Filter…" /></div>
+      <div class="list" id="list"></div>
+    </aside>
+    <main>
+      <div class="toolbar">
+        <button id="fit">Fit</button>
+        <button id="mirror">Mirror</button>
+        <button id="clear">Clear</button>
+      </div>
+      <kicad-pcb id="pcb" src="./poweramp.kicad_pcb"></kicad-pcb>
+      <div class="status" id="status">loading…</div>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

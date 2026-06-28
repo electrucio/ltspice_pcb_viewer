@@ -1,0 +1,31 @@
+{
+  "name": "kicad_pcb_viewer",
+  "version": "0.1.0",
+  "description": "Framework-agnostic web component to visualize a KiCad PCB (.kicad_pcb): all layers in one view, layer toggles, net/component highlighting, mirror, pan/zoom.",
+  "type": "module",
+  "main": "./dist/kicad_pcb_viewer.js",
+  "module": "./dist/kicad_pcb_viewer.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/kicad_pcb_viewer.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "vite demo",
+    "build": "tsc --emitDeclarationOnly && vite build",
+    "preview": "vite preview demo",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["kicad", "pcb", "eda", "web-component", "svg", "ibom"],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0",
+    "vitest": "^2.1.0"
+  }
+}

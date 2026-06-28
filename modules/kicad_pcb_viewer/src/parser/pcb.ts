@@ -1,0 +1,297 @@
+/**
+ * Parser for KiCad `.kicad_pcb` (S-expression). Produces a flat, render-ready model in
+ * board coordinates (mm, Y down): board edges, copper tracks, vias, zone fills, and
+ * footprints with their pads + silkscreen graphics + reference label. Nets are referenced
+ * by name string (KiCad 9/10 format), so no separate net table is needed.
+ */
+
+import { parseSExpr, child, children, childStr, type SNode } from "./sexpr.js";
+import { toWorld, ROT_SIGN, type Point } from "../geometry/transform.js";
+
+export type PadShape = "circle" | "oval" | "rect" | "roundrect" | "trapezoid" | "custom";
+
+export interface Pad {
+  ref: string; // owning footprint reference
+  number: string;
+  shape: PadShape;
+  thruHole: boolean;
+  pos: Point; // board coords
+  size: { w: number; h: number };
+  angle: number; // board-frame angle (deg)
+  rratio: number; // roundrect corner ratio
+  drill?: { w: number; h: number };
+  layers: string[];
+  net: string;
+}
+
+export type FpGraphic =
+  | { kind: "line"; layer: string; a: Point; b: Point; width: number }
+  | { kind: "circle"; layer: string; center: Point; radius: number; width: number }
+  | { kind: "arc"; layer: string; start: Point; mid: Point; end: Point; width: number }
+  | { kind: "rect"; layer: string; a: Point; b: Point; width: number; fill: boolean };
+
+export interface Footprint {
+  ref: string;
+  value: string;
+  pos: Point;
+  angle: number;
+  layer: string; // F.Cu or B.Cu
+  pads: Pad[];
+  graphics: FpGraphic[]; // silkscreen / fab, in board coords
+  refPos: Point;
+  refLayer: string;
+}
+
+export interface Track {
+  start: Point;
+  end: Point;
+  width: number;
+  layer: string;
+  net: string;
+}
+
+export interface Via {
+  pos: Point;
+  size: number;
+  drill: number;
+  layers: string[];
+  net: string;
+}
+
+export interface ZoneFill {
+  layer: string;
+  net: string;
+  pts: Point[];
+}
+
+export type BoardGraphic =
+  | { kind: "line"; layer: string; a: Point; b: Point; width: number }
+  | { kind: "rect"; layer: string; a: Point; b: Point; width: number; fill: boolean }
+  | { kind: "circle"; layer: string; center: Point; radius: number; width: number }
+  | { kind: "arc"; layer: string; start: Point; mid: Point; end: Point; width: number }
+  | { kind: "poly"; layer: string; pts: Point[]; width: number; fill: boolean };
+
+export interface BBox {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+export interface Pcb {
+  footprints: Footprint[];
+  tracks: Track[];
+  vias: Via[];
+  zones: ZoneFill[];
+  graphics: BoardGraphic[]; // gr_* (board outline on Edge.Cuts, other layers)
+  nets: string[];
+  layers: string[]; // layer names present
+  bbox: BBox;
+}
+
+// ---- small readers -------------------------------------------------------
+
+function nums(node: SNode | undefined): number[] {
+  return node ? (node.values.map(Number).filter((n) => !Number.isNaN(n))) : [];
+}
+function xy(node: SNode | undefined): Point {
+  const [x = 0, y = 0] = nums(node);
+  return { x, y };
+}
+/** an (at x y [angle]) triple */
+function at(node: SNode | undefined): { x: number; y: number; angle: number } {
+  const [x = 0, y = 0, angle = 0] = nums(node);
+  return { x, y, angle };
+}
+function strokeWidth(node: SNode): number {
+  const s = child(node, "stroke");
+  const w = s ? Number(child(s, "width")?.values[0]) : Number(child(node, "width")?.values[0]);
+  return Number.isFinite(w) && w > 0 ? w : 0.12;
+}
+function isFilled(node: SNode): boolean {
+  const f = child(node, "fill");
+  if (!f) return false;
+  const v = String(f.values[0]);
+  return v === "yes" || v === "solid";
+}
+function pts(node: SNode | undefined): Point[] {
+  const p = node ? child(node, "pts") : undefined;
+  if (!p) return [];
+  return children(p, "xy").map((c) => xy(c));
+}
+
+function grow(b: BBox, p: Point): void {
+  if (p.x < b.minX) b.minX = p.x;
+  if (p.y < b.minY) b.minY = p.y;
+  if (p.x > b.maxX) b.maxX = p.x;
+  if (p.y > b.maxY) b.maxY = p.y;
+}
+
+// ---- footprint internals -------------------------------------------------
+
+function readPad(node: SNode, fpos: Point, fangle: number, ref: string, sign: number): Pad {
+  const number = String(node.values[0] ?? "");
+  const type = String(node.values[1] ?? "smd"); // smd | thru_hole | np_thru_hole | connect
+  const shape = String(node.values[2] ?? "rect") as PadShape;
+  const a = at(child(node, "at"));
+  const [w = 0, h = w] = nums(child(node, "size"));
+  const pos = toWorld({ x: a.x, y: a.y }, fpos, fangle, sign);
+  const drillNode = child(node, "drill");
+  let drill: { w: number; h: number } | undefined;
+  if (drillNode) {
+    const dn = nums(drillNode);
+    if (drillNode.values[0] === "oval") drill = { w: dn[0] ?? 0, h: dn[1] ?? dn[0] ?? 0 };
+    else if (dn.length) drill = { w: dn[0]!, h: dn[1] ?? dn[0]! };
+  }
+  return {
+    ref,
+    number,
+    shape,
+    thruHole: type === "thru_hole" || type === "np_thru_hole",
+    pos,
+    size: { w, h },
+    angle: fangle + a.angle,
+    rratio: Number(child(node, "roundrect_rratio")?.values[0] ?? 0.25),
+    drill,
+    layers: children(node, "layers").flatMap((l) => l.values.map(String)),
+    net: childStr(node, "net") ?? "",
+  };
+}
+
+function readFpGraphic(node: SNode, fpos: Point, fangle: number, sign: number): FpGraphic | null {
+  const layer = childStr(node, "layer") ?? "";
+  const w = strokeWidth(node);
+  const W = (p: Point) => toWorld(p, fpos, fangle, sign);
+  switch (node.name) {
+    case "fp_line":
+      return { kind: "line", layer, a: W(xy(child(node, "start"))), b: W(xy(child(node, "end"))), width: w };
+    case "fp_rect":
+      return { kind: "rect", layer, a: W(xy(child(node, "start"))), b: W(xy(child(node, "end"))), width: w, fill: isFilled(node) };
+    case "fp_circle": {
+      const c = W(xy(child(node, "center")));
+      const e = W(xy(child(node, "end")));
+      return { kind: "circle", layer, center: c, radius: Math.hypot(e.x - c.x, e.y - c.y), width: w };
+    }
+    case "fp_arc":
+      return { kind: "arc", layer, start: W(xy(child(node, "start"))), mid: W(xy(child(node, "mid"))), end: W(xy(child(node, "end"))), width: w };
+    default:
+      return null;
+  }
+}
+
+function readFootprint(node: SNode, sign: number): Footprint {
+  const a = at(child(node, "at"));
+  const fpos = { x: a.x, y: a.y };
+  const layer = childStr(node, "layer") ?? "F.Cu";
+  const props = children(node, "property");
+  const refProp = props.find((p) => String(p.values[0]) === "Reference");
+  const valProp = props.find((p) => String(p.values[0]) === "Value");
+  const ref = refProp ? String(refProp.values[1] ?? "") : "";
+  const refAt = at(child(refProp ?? node, "at"));
+
+  const pads = children(node, "pad").map((p) => readPad(p, fpos, a.angle, ref, sign));
+  const graphics: FpGraphic[] = [];
+  for (const g of node.children) {
+    const fg = readFpGraphic(g, fpos, a.angle, sign);
+    if (fg) graphics.push(fg);
+  }
+  return {
+    ref,
+    value: valProp ? String(valProp.values[1] ?? "") : "",
+    pos: fpos,
+    angle: a.angle,
+    layer,
+    pads,
+    graphics,
+    refPos: toWorld({ x: refAt.x, y: refAt.y }, fpos, a.angle, sign),
+    refLayer: refProp ? childStr(refProp, "layer") ?? "F.SilkS" : "F.SilkS",
+  };
+}
+
+function readBoardGraphic(node: SNode): BoardGraphic | null {
+  const layer = childStr(node, "layer") ?? "";
+  const w = strokeWidth(node);
+  switch (node.name) {
+    case "gr_line":
+      return { kind: "line", layer, a: xy(child(node, "start")), b: xy(child(node, "end")), width: w };
+    case "gr_rect":
+      return { kind: "rect", layer, a: xy(child(node, "start")), b: xy(child(node, "end")), width: w, fill: isFilled(node) };
+    case "gr_circle": {
+      const c = xy(child(node, "center"));
+      const e = xy(child(node, "end"));
+      return { kind: "circle", layer, center: c, radius: Math.hypot(e.x - c.x, e.y - c.y), width: w };
+    }
+    case "gr_arc":
+      return { kind: "arc", layer, start: xy(child(node, "start")), mid: xy(child(node, "mid")), end: xy(child(node, "end")), width: w };
+    case "gr_poly":
+      return { kind: "poly", layer, pts: pts(node), width: w, fill: isFilled(node) };
+    default:
+      return null;
+  }
+}
+
+export function parsePcb(text: string, sign: number = ROT_SIGN): Pcb {
+  const root = parseSExpr(text);
+  if (root.name !== "kicad_pcb") throw new Error(`Not a kicad_pcb file (root is "${root.name}")`);
+
+  const footprints: Footprint[] = [];
+  const tracks: Track[] = [];
+  const vias: Via[] = [];
+  const zones: ZoneFill[] = [];
+  const graphics: BoardGraphic[] = [];
+  const netSet = new Set<string>();
+
+  for (const node of root.children) {
+    switch (node.name) {
+      case "footprint": {
+        const fp = readFootprint(node, sign);
+        footprints.push(fp);
+        for (const p of fp.pads) if (p.net) netSet.add(p.net);
+        break;
+      }
+      case "segment":
+      case "arc": { // arc tracks (rare); treat endpoints as a straight track for hit/highlight
+        const net = childStr(node, "net") ?? "";
+        tracks.push({ start: xy(child(node, "start")), end: xy(child(node, "end")), width: Number(child(node, "width")?.values[0] ?? 0.2), layer: childStr(node, "layer") ?? "", net });
+        if (net) netSet.add(net);
+        break;
+      }
+      case "via": {
+        const net = childStr(node, "net") ?? "";
+        vias.push({ pos: xy(child(node, "at")), size: Number(child(node, "size")?.values[0] ?? 0.6), drill: Number(child(node, "drill")?.values[0] ?? 0.3), layers: (child(node, "layers")?.values ?? []).map(String), net });
+        if (net) netSet.add(net);
+        break;
+      }
+      case "zone": {
+        const net = childStr(node, "net_name") ?? childStr(node, "net") ?? "";
+        const layer = childStr(node, "layer") ?? children(node, "layers")[0]?.values[0]?.toString() ?? "";
+        for (const fp of children(node, "filled_polygon")) {
+          zones.push({ layer: childStr(fp, "layer") ?? layer, net, pts: pts(fp) });
+        }
+        if (net) netSet.add(net);
+        break;
+      }
+      default: {
+        const g = readBoardGraphic(node);
+        if (g) graphics.push(g);
+      }
+    }
+  }
+
+  // bounding box (board outline preferred, else everything)
+  const bbox: BBox = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  for (const g of graphics) {
+    if (g.layer !== "Edge.Cuts") continue;
+    if (g.kind === "line" || g.kind === "rect" || g.kind === "arc") { grow(bbox, (g as { a?: Point }).a ?? (g as { start: Point }).start); }
+    if (g.kind === "rect" || g.kind === "line") { grow(bbox, g.a); grow(bbox, g.b); }
+    if (g.kind === "circle") { grow(bbox, { x: g.center.x - g.radius, y: g.center.y - g.radius }); grow(bbox, { x: g.center.x + g.radius, y: g.center.y + g.radius }); }
+    if (g.kind === "poly") for (const p of g.pts) grow(bbox, p);
+    if (g.kind === "arc") { grow(bbox, g.start); grow(bbox, g.end); }
+  }
+  if (!Number.isFinite(bbox.minX)) {
+    for (const t of tracks) { grow(bbox, t.start); grow(bbox, t.end); }
+    for (const f of footprints) for (const p of f.pads) grow(bbox, p.pos);
+  }
+
+  return { footprints, tracks, vias, zones, graphics, nets: [...netSet].sort(), layers: [...new Set([...tracks.map((t) => t.layer), ...graphics.map((g) => g.layer)])], bbox };
+}

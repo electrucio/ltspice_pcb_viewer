@@ -42,6 +42,18 @@ changes for this. Key files: `mapping/store.ts` (two 1:1 bimaps + JSON import/ex
 `mapping/format.ts`, `interaction/pairing.ts` (deliberate selection state machine),
 `suggest/chain.ts` (the suggestion engine), `component/mapper.ts` (the element).
 
+### `modules/kicad_pcb_viewer` — `<kicad-pcb>`
+Renders a KiCad `.kicad_pcb` (S-expression; reuses `parser/sexpr.ts`) as a **single
+combined view of all layers** — not split top/bottom like InteractiveHtmlBom.
+`parser/pcb.ts` → model (board edges, tracks, vias, zone fills, footprints w/ pads +
+silk + ref); nets by name (KiCad 9/10). `geometry/transform.ts` places footprint pads
+(orientation; `ROT_SIGN` locked empirically by pad↔track coincidence; all poweramp
+footprints are front-side THT). `render/svg.ts` draws into `data-layer` groups (B.Cu,
+F.Cu, pads, vias, F/B.SilkS, Edge.Cuts, refs), tagging `data-net`/`data-ref`.
+`interaction/controller.ts` = pan/zoom + horizontal **mirror** (transform on a content
+group) + per-layer visibility + net/component highlight (`--ksv-highlight`). 3 parser
+tests. Data source is the original `poweramp.kicad_pcb` (not the ibom export).
+
 ## Shared conventions (across both viewers)
 
 - **`ksv-*` CSS classes** and a **themable stylesheet** (`render/theme.ts`) with
@@ -96,7 +108,8 @@ changes for this. Key files: `mapping/store.ts` (two 1:1 bimaps + JSON import/ex
 ## Known gaps / future ideas
 - Hierarchical KiCad sheets, global/hierarchical labels, buses, Newstroke font fidelity
   are out of scope in the viewers.
-- The two `controller.ts` copies (and `theme.ts`) could be extracted into a shared
-  package once integration starts.
-- A **PCB viewer** is the natural next module (the umbrella name hints at it); the mapper
-  pattern would then extend to schematic↔PCB cross-probing.
+- The `controller.ts` copies (and `theme.ts`) could be extracted into a shared package
+  once integration starts (the PCB viewer has its own `PcbController` variant too).
+- Next integration: a schematic↔PCB cross-probe (reuse the mapper pattern; the PCB
+  viewer already exposes `data-net`/`data-ref` + `highlightNet`/`highlightComponent`).
+- PCB viewer v1 gaps: back-side footprint flip, copper-pour hatching, soldermask/3D.
