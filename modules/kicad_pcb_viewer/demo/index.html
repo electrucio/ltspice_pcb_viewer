@@ -26,14 +26,15 @@
       main { position: relative; min-width: 0; }
       kicad-pcb { width: 100%; height: 100%; }
       .toolbar { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
-      .toolbar button { padding: 6px 10px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+      .toolbar button, .toolbar .filebtn { padding: 6px 10px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; font: inherit; }
+      .toolbar .filebtn input { display: none; }
       .status { position: absolute; left: 12px; bottom: 12px; background: rgba(20,23,26,.85); padding: 6px 10px; border-radius: 6px; color: var(--muted); }
       .status b { color: var(--accent); }
     </style>
   </head>
   <body>
     <aside>
-      <header><h1>KiCad PCB Viewer</h1><p>poweramp.kicad_pcb</p></header>
+      <header><h1>KiCad PCB Viewer</h1><p id="fname">poweramp.kicad_pcb</p></header>
       <div class="sec"><h2>Layers</h2><div id="layers"></div></div>
       <div class="tabs"><button id="tab-nets" class="active">Nets</button><button id="tab-comps">Parts</button></div>
       <div class="sec"><input id="q" type="search" placeholder="Filter…" /></div>
@@ -41,6 +42,7 @@
     </aside>
     <main>
       <div class="toolbar">
+        <input id="open" type="file" accept=".kicad_pcb" title="Open a .kicad_pcb" />
         <button id="fit">Fit</button>
         <button id="mirror">Mirror</button>
         <button id="clear">Clear</button>

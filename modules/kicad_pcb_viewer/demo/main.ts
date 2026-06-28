@@ -78,3 +78,19 @@ q.oninput = render;
 document.getElementById("fit")!.onclick = () => pcb.fit();
 document.getElementById("mirror")!.onclick = () => pcb.toggleMirror();
 document.getElementById("clear")!.onclick = () => { pcb.clearHighlights(); selected = null; render(); };
+
+// open any .kicad_pcb for testing
+const fileInput = document.getElementById("open") as HTMLInputElement;
+fileInput.onchange = async () => {
+  const f = fileInput.files?.[0];
+  if (!f) return;
+  selected = null;
+  document.getElementById("fname")!.textContent = f.name;
+  setStatus(`loading <b>${f.name}</b>…`);
+  try {
+    pcb.loadFromString(await f.text()); // fires "ready" -> rebuilds layers + lists
+  } catch (e) {
+    setStatus(`failed to load: ${(e as Error).message}`);
+  }
+  fileInput.value = "";
+};
