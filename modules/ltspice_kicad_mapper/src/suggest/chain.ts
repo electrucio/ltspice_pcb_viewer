@@ -51,6 +51,12 @@ export type Side = "lt" | "ki";
 
 export const COMPONENT_THRESHOLD = 0.5;
 export const NET_THRESHOLD = 0.5;
+/**
+ * Cross-check ratio. After finding the top-1 candidate B for the clicked A, we re-match B
+ * back against A's schematic; if B's best there scores far higher than B↔A (i.e. A is well
+ * below this fraction of it), B's real partner is elsewhere, so we suggest nothing.
+ */
+export const MUTUAL_RATIO = 0.8;
 const EASY = new Set(["R", "C", "D", "L", "Q"]);
 const MULT: Record<string, number> = { p: 1e-12, n: 1e-9, u: 1e-6, m: 1e-3, k: 1e3, meg: 1e6, g: 1e9 };
 
@@ -186,6 +192,19 @@ export function bestComponentMatch(input: SuggestInput, side: Side, ref: string)
   return best;
 }
 
+/**
+ * Best counterpart for `ref` that survives a back-check: the top-1 candidate B must not
+ * have a much better partner back in `ref`'s own schematic (mutual nearest neighbour with
+ * a ratio test). Otherwise B's real partner is elsewhere → return null (don't suggest).
+ */
+export function mutualComponentMatch(input: SuggestInput, side: Side, ref: string): CompMatch | null {
+  const fwd = bestComponentMatch(input, side, ref);
+  if (!fwd) return null;
+  const back = bestComponentMatch(input, side === "lt" ? "ki" : "lt", fwd.ref);
+  if (!back || back.ref === ref) return fwd; // mutual best
+  return fwd.score >= back.score * MUTUAL_RATIO ? fwd : null;
+}
+
 export interface PairMatch {
   ltRef: string;
   kiRef: string;
@@ -204,14 +223,12 @@ export function chooseNextComponentPair(input: SuggestInput): PairMatch | null {
     (idx.ltNbr.get(c.ref) ?? []).some((n) => input.compMappedLt(n.ref)) || c.nets.some((n) => input.netMappedLt(n));
   const frontier = unmappedLt.filter(onFrontier);
   const candidates = frontier.length ? frontier : unmappedLt;
-  const pool = input.kiComps.filter((c) => EASY.has(componentType(c.ref)) && !input.compMappedKi(c.ref));
 
+  // each candidate's best counterpart must pass the back-check; pick the strongest overall
   let best: PairMatch | null = null;
   for (const a of candidates) {
-    for (const b of pool) {
-      const sc = contextualComponentScore(a, b, input, idx);
-      if (sc >= COMPONENT_THRESHOLD && (!best || sc > best.score)) best = { ltRef: a.ref, kiRef: b.ref, score: sc };
-    }
+    const match = mutualComponentMatch(input, "lt", a.ref);
+    if (match && (!best || match.score > best.score)) best = { ltRef: a.ref, kiRef: match.ref, score: match.score };
   }
   return best;
 }
@@ -263,4 +280,13 @@ export function bestNetMatch(input: SuggestInput, side: Side, name: string): Net
     }
   }
   return best;
+}
+
+/** Net match with the same back-check as mutualComponentMatch. */
+export function mutualNetMatch(input: SuggestInput, side: Side, name: string): NetMatch | null {
+  const fwd = bestNetMatch(input, side, name);
+  if (!fwd) return null;
+  const back = bestNetMatch(input, side === "lt" ? "ki" : "lt", fwd.name);
+  if (!back || back.name === name) return fwd;
+  return fwd.score >= back.score * MUTUAL_RATIO ? fwd : null;
 }

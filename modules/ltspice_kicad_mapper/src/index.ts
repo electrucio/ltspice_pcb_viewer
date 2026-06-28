@@ -21,6 +21,8 @@ export type { Selection, PairCandidate } from "./interaction/pairing.js";
 export {
   bestComponentMatch,
   bestNetMatch,
+  mutualComponentMatch,
+  mutualNetMatch,
   chooseNextComponentPair,
   contextualComponentScore,
   netContextualScore,

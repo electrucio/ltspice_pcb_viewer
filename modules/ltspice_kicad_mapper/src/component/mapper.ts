@@ -20,7 +20,7 @@ import "../../../kicad_schematic_viewer/src/index.js";
 import { MappingStore, serialize, type AvailableIds } from "../mapping/store.js";
 import type { Kind, Side, MappingFile } from "../mapping/format.js";
 import { Pairing } from "../interaction/pairing.js";
-import { bestComponentMatch, bestNetMatch, chooseNextComponentPair, type SuggestInput } from "../suggest/chain.js";
+import { mutualComponentMatch, mutualNetMatch, chooseNextComponentPair, type SuggestInput } from "../suggest/chain.js";
 import { STYLESHEET } from "./style.js";
 
 interface CompInfo { ref: string; value: string; nets: string[]; pos: { x: number; y: number } }
@@ -325,8 +325,8 @@ export class LtspiceKicadMapperElement extends HTMLElement {
   /** Best contextual counterpart for a clicked unmapped item (above threshold), or null. */
   private suggestMatch(side: Side, kind: Kind, id: string): string | null {
     const s = side === "ltspice" ? "lt" : "ki";
-    if (kind === "component") return bestComponentMatch(this.suggestInput(), s, id)?.ref ?? null;
-    return bestNetMatch(this.suggestInput(), s, id)?.name ?? null;
+    if (kind === "component") return mutualComponentMatch(this.suggestInput(), s, id)?.ref ?? null;
+    return mutualNetMatch(this.suggestInput(), s, id)?.name ?? null;
   }
 
   /** Best next component pair to autosuggest in the chain (near the mapped region). */

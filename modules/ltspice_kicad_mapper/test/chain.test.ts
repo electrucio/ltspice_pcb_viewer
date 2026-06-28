@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  bestComponentMatch, bestNetMatch, chooseNextComponentPair,
+  bestComponentMatch, bestNetMatch, mutualComponentMatch, chooseNextComponentPair,
   parseValue, componentType, valueSimilarity,
   type SuggestInput, type SuggestComp, type SuggestNet,
 } from "../src/suggest/chain.js";
@@ -92,6 +92,24 @@ describe("bestComponentMatch (click → best contextual counterpart)", () => {
       netMappedKi: (n) => n === "NS",
     });
     expect(bestComponentMatch(inp, "lt", "R1")?.ref).toBe("R9"); // R8 (off net NS) penalised
+  });
+});
+
+describe("mutualComponentMatch (back-check / cross-check)", () => {
+  it("suppresses a suggestion when the candidate clearly belongs to another component", () => {
+    // The only 1k resistor on the ki side (R9) is strongly R2's match (R2 shares the
+    // confirmed Q1<->Q5 context). R1 also points at R9 (it's the only 1k) but weaker.
+    // R9's best back-match is R2, far above R1 -> suggest nothing for R1.
+    const inp = input({
+      ltComps: [C("Q1", "npn", ["N1"]), C("R2", "1k", ["N1", "K"]), C("R1", "1k", ["P"]), C("C1", "100n", ["P", "Z"])],
+      kiComps: [C("Q5", "BD139", ["M1"]), C("R9", "1k", ["M1", "K2"]), C("C9", "470n", ["K2", "Z2"])],
+      compCounterpartLt: (r) => (r === "Q1" ? "Q5" : undefined),
+      compMappedLt: (r) => r === "Q1",
+      compMappedKi: (r) => r === "Q5",
+    });
+    expect(bestComponentMatch(inp, "lt", "R1")?.ref).toBe("R9"); // raw top-1
+    expect(mutualComponentMatch(inp, "lt", "R1")).toBeNull(); // back-check rejects (R9 prefers R2)
+    expect(mutualComponentMatch(inp, "lt", "R2")?.ref).toBe("R9"); // R2 is R9's real partner
   });
 });
 

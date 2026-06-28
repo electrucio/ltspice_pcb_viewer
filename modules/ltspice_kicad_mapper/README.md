@@ -70,6 +70,11 @@ on the other side, above a threshold.
 A suggestion is only offered when it clears a minimum score, so weak/ambiguous matches
 are left for you to map manually.
 
+**Back-check (cross-check).** Once the top-1 candidate B is found for the clicked A, B is
+re-matched against A's own schematic. If B clearly belongs to someone else there (its best
+back-match scores far above B↔A), the suggestion is dropped entirely — a wrong top-1 means
+top-2 is worse, so nothing is suggested rather than something misleading.
+
 The suggested (candidate) side is restricted to the anchor's connected components for
 locality, but its match is searched across **all** components on the other side. This
 matches even active parts whose values differ across tools (transistors, diodes), via
