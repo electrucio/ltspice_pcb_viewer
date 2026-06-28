@@ -57,6 +57,9 @@ designators, no geometry):
   match `b`'s connected components (each neighbour pair scored by *simple*; confirmed
   neighbours count `1.0`). A candidate sitting next to already-mapped parts that line up
   scores highest.
+- **net consistency** — confirmed net mappings are authoritative: if a candidate sits on
+  an already-mapped net, its partner must sit on that net's counterpart. Agreement
+  rewards; any disagreement is a strong penalty (effectively disqualifies the pair).
 
 The suggested (candidate) side is restricted to the anchor's connected components for
 locality, but its match is searched across **all** components on the other side. This

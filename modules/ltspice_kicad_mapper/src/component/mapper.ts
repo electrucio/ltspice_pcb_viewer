@@ -315,6 +315,8 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       isMappedLt: (r) => this.store.isMapped("component", "ltspice", r),
       isMappedKi: (r) => this.store.isMapped("component", "kicad", r),
       componentCounterpartLt: (r) => this.store.counterpart("component", "ltspice", r),
+      netCounterpartLt: (n) => this.store.counterpart("net", "ltspice", n),
+      netCounterpartKi: (n) => this.store.counterpart("net", "kicad", n),
     });
     return res ? { ltRef: res.ltRef, kiRef: res.kiRef } : null;
   }

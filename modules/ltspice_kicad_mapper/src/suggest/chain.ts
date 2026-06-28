@@ -13,9 +13,13 @@
  *                     (so confirmed neighbours contribute 1.0). A candidate sitting next
  *                     to already-mapped components that line up scores high.
  *
+ * On top of that, confirmed NET mappings are authoritative: if a candidate sits on a
+ * mapped net, its partner must sit on that net's counterpart — agreement rewards, any
+ * disagreement is a strong penalty (effectively disqualifying).
+ *
  * For the chain we restrict the *candidate* side to the anchor's connected components
- * (locality / UX), but search ALL components on the other side for its best contextual
- * match. Only R/C/D/L/Q are suggested; other parts are mapped manually.
+ * (locality / UX), but search ALL components on the other side for its best match.
+ * Only R/C/D/L/Q are suggested; other parts are mapped manually.
  *
  * Pure and DOM-free so it can be unit-tested.
  */
@@ -34,6 +38,10 @@ export interface ChainParams {
   isMappedKi: (ref: string) => boolean;
   /** ltspice component ref -> mapped kicad component ref (or undefined) */
   componentCounterpartLt: (ref: string) => string | undefined;
+  /** ltspice net name -> mapped kicad net name (or undefined) */
+  netCounterpartLt: (net: string) => string | undefined;
+  /** kicad net name -> mapped ltspice net name (or undefined) */
+  netCounterpartKi: (net: string) => string | undefined;
 }
 
 export interface ChainSuggestion {
@@ -123,10 +131,30 @@ export function chooseChainSuggestion(p: ChainParams): ChainSuggestion | null {
     return s * (0.4 + 0.6 * (sum / nbA.length));
   };
 
+  // Confirmed net mappings are authoritative: if a sits on a mapped net, b must sit on
+  // that net's counterpart (and vice versa). Agreement rewards; any disagreement is a
+  // strong penalty (a real match agrees on every mapped net it touches).
+  const netConsistency = (a: ChainComp, b: ChainComp): number => {
+    let agree = 0, disagree = 0;
+    for (const n of a.nets) {
+      const cp = p.netCounterpartLt(n);
+      if (cp == null) continue;
+      if (b.nets.includes(cp)) agree++; else disagree++;
+    }
+    for (const n of b.nets) {
+      const cp = p.netCounterpartKi(n);
+      if (cp == null) continue;
+      if (a.nets.includes(cp)) agree++; else disagree++;
+    }
+    return 0.4 * agree - 5 * disagree;
+  };
+
   let best: ChainSuggestion | null = null;
   for (const a of candidates) {
     for (const b of pool) {
-      const score = contextual(a, b);
+      const ctx = contextual(a, b);
+      if (ctx <= 0) continue; // different type
+      const score = ctx + netConsistency(a, b);
       if (score > 0 && (!best || score > best.score)) best = { ltRef: a.ref, kiRef: b.ref, score };
     }
   }
