@@ -24,11 +24,11 @@
       .tabs button.active { color: var(--fg); border-bottom-color: var(--accent); }
       input[type=search] { width: 100%; padding: 6px 8px; background: #0e1116; border: 1px solid var(--line); border-radius: 6px; color: var(--fg); }
       main { position: relative; min-width: 0; }
-      kicad-pcb { width: 100%; height: 100%; }
-      .toolbar { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
+      kicad-pcb { width: 100%; height: 100%; display: block; position: absolute; inset: 0; }
+      .toolbar { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; z-index: 10; }
       .toolbar button, .toolbar .filebtn { padding: 6px 10px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; font: inherit; }
       .toolbar .filebtn input { display: none; }
-      .status { position: absolute; left: 12px; bottom: 12px; background: rgba(20,23,26,.85); padding: 6px 10px; border-radius: 6px; color: var(--muted); }
+      .status { position: absolute; left: 12px; bottom: 12px; background: rgba(20,23,26,.85); padding: 6px 10px; border-radius: 6px; color: var(--muted); z-index: 10; }
       .status b { color: var(--accent); }
     </style>
   </head>
