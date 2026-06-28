@@ -38,6 +38,7 @@ function input(over: Partial<SuggestInput> = {}): SuggestInput {
     ltNets: over.ltNets ?? netsOf(ltComps),
     kiNets: over.kiNets ?? netsOf(kiComps),
     compCounterpartLt: over.compCounterpartLt ?? (() => undefined),
+    compCounterpartKi: over.compCounterpartKi ?? (() => undefined),
     netCounterpartLt: over.netCounterpartLt ?? (() => undefined),
     netCounterpartKi: over.netCounterpartKi ?? (() => undefined),
     compMappedLt: over.compMappedLt ?? (() => false),
@@ -126,16 +127,26 @@ describe("chooseNextComponentPair (chain)", () => {
   });
 });
 
-describe("bestNetMatch (click net → best contextual net, no simple level)", () => {
-  it("matches nets by their connected components", () => {
-    // confirmed comps R1<->R9 and C1<->C9. Net NETA(lt) connects R1+C1; the ki net with R9+C9 wins.
+describe("bestNetMatch (nets matched only via CONFIRMED components)", () => {
+  it("matches nets by their confirmed connected components", () => {
+    // confirmed comps R1<->R9 and C1<->C9. Net A(lt) connects R1+C1; the ki net with R9+C9 wins.
     const inp = input({
       ltComps: [C("R1", "1k", ["A", "G"]), C("C1", "100n", ["A", "G"])],
       kiComps: [C("R9", "1k", ["NA", "NG"]), C("C9", "100n", ["NA", "NG"]), C("Rx", "1k", ["ZZ"])],
       compCounterpartLt: (r) => (r === "R1" ? "R9" : r === "C1" ? "C9" : undefined),
+      compCounterpartKi: (r) => (r === "R9" ? "R1" : r === "C9" ? "C1" : undefined),
       compMappedLt: (r) => r === "R1" || r === "C1",
       compMappedKi: (r) => r === "R9" || r === "C9",
     });
     expect(bestNetMatch(inp, "lt", "A")?.name).toBe("NA");
+  });
+
+  it("suggests nothing when no component on the net is mapped yet (the VCC bug)", () => {
+    // Two ki nets share the same parts by type/value, but nothing is confirmed -> no guess.
+    const inp = input({
+      ltComps: [C("Q6", "2SD896", ["VCC"]), C("Q4", "BD139", ["VCC"]), C("R26", "47", ["VCC"])],
+      kiComps: [C("Q6", "2SD896", ["POW"]), C("Q4", "BD139", ["POW", "QE"]), C("R14", "56", ["QE"])],
+    });
+    expect(bestNetMatch(inp, "lt", "VCC")).toBeNull();
   });
 });
