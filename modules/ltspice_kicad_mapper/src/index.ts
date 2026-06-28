@@ -18,5 +18,17 @@ export { deserialize } from "./mapping/format.js";
 export type { MappingFile, Pair, Kind, Side } from "./mapping/format.js";
 export { Pairing } from "./interaction/pairing.js";
 export type { Selection, PairCandidate } from "./interaction/pairing.js";
-export { chooseChainSuggestion, parseValue, componentType } from "./suggest/chain.js";
-export type { ChainComp, ChainParams, ChainSuggestion } from "./suggest/chain.js";
+export {
+  bestComponentMatch,
+  bestNetMatch,
+  chooseNextComponentPair,
+  contextualComponentScore,
+  netContextualScore,
+  simpleSimilarity,
+  valueSimilarity,
+  parseValue,
+  componentType,
+  COMPONENT_THRESHOLD,
+  NET_THRESHOLD,
+} from "./suggest/chain.js";
+export type { SuggestComp, SuggestNet, SuggestInput, CompMatch, NetMatch, PairMatch } from "./suggest/chain.js";

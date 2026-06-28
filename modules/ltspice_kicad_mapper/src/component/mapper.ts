@@ -20,7 +20,7 @@ import "../../../kicad_schematic_viewer/src/index.js";
 import { MappingStore, serialize, type AvailableIds } from "../mapping/store.js";
 import type { Kind, Side, MappingFile } from "../mapping/format.js";
 import { Pairing } from "../interaction/pairing.js";
-import { chooseChainSuggestion } from "../suggest/chain.js";
+import { bestComponentMatch, bestNetMatch, chooseNextComponentPair, type SuggestInput } from "../suggest/chain.js";
 import { STYLESHEET } from "./style.js";
 
 interface CompInfo { ref: string; value: string; nets: string[]; pos: { x: number; y: number } }
@@ -228,9 +228,9 @@ export class LtspiceKicadMapperElement extends HTMLElement {
         this.pairing.select(side, kind, id);
       } else {
         this.pairing.setSingle(side, kind, id);
-        // auto-select the suggested counterpart so pressing M maps them right away
-        const sugg = this.store.suggest(kind, side, id, this.available());
-        if (sugg[0]) { this.pairing.select(other, kind, sugg[0]); this.autoSide = other; }
+        // auto-select the best contextual counterpart (above threshold) so M maps it
+        const match = this.suggestMatch(side, kind, id);
+        if (match) { this.pairing.select(other, kind, match); this.autoSide = other; }
       }
     }
     this.refresh();
@@ -250,7 +250,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     this.updateMarks();
     this.autoSide = null;
     // chain of suggestions: after a component map, pre-select the next likely pair
-    const next = m.kind === "component" ? this.chainSuggest(m.ltspice, m.kicad) : null;
+    const next = m.kind === "component" ? this.chainSuggest() : null;
     if (next) {
       this.pairing.setSingle("ltspice", "component", next.ltRef);
       this.pairing.select("kicad", "component", next.kiRef);
@@ -304,21 +304,35 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     return this.sides[side].comps.find((c) => c.ref === ref)?.nets ?? [];
   }
 
-  /** Best next component pair to suggest, walking out from a just-mapped anchor pair. */
-  private chainSuggest(anchorLtRef: string, anchorKiRef: string): { ltRef: string; kiRef: string } | null {
-    const ltComps = this.sides.ltspice.comps;
-    const kiComps = this.sides.kicad.comps;
-    const anchorLt = ltComps.find((c) => c.ref === anchorLtRef);
-    if (!anchorLt || !kiComps.some((c) => c.ref === anchorKiRef)) return null;
-    const res = chooseChainSuggestion({
-      anchorLt, ltComps, kiComps,
-      isMappedLt: (r) => this.store.isMapped("component", "ltspice", r),
-      isMappedKi: (r) => this.store.isMapped("component", "kicad", r),
-      componentCounterpartLt: (r) => this.store.counterpart("component", "ltspice", r),
+  /** Snapshot of both schematics + current mappings for the suggestion engine. */
+  private suggestInput(): SuggestInput {
+    const nets = (st: SideState) => st.nets.map((n) => ({ name: n.name, comps: netComponentRefs(n) }));
+    return {
+      ltComps: this.sides.ltspice.comps,
+      kiComps: this.sides.kicad.comps,
+      ltNets: nets(this.sides.ltspice),
+      kiNets: nets(this.sides.kicad),
+      compCounterpartLt: (r) => this.store.counterpart("component", "ltspice", r),
       netCounterpartLt: (n) => this.store.counterpart("net", "ltspice", n),
       netCounterpartKi: (n) => this.store.counterpart("net", "kicad", n),
-    });
-    return res ? { ltRef: res.ltRef, kiRef: res.kiRef } : null;
+      compMappedLt: (r) => this.store.isMapped("component", "ltspice", r),
+      compMappedKi: (r) => this.store.isMapped("component", "kicad", r),
+      netMappedLt: (n) => this.store.isMapped("net", "ltspice", n),
+      netMappedKi: (n) => this.store.isMapped("net", "kicad", n),
+    };
+  }
+
+  /** Best contextual counterpart for a clicked unmapped item (above threshold), or null. */
+  private suggestMatch(side: Side, kind: Kind, id: string): string | null {
+    const s = side === "ltspice" ? "lt" : "ki";
+    if (kind === "component") return bestComponentMatch(this.suggestInput(), s, id)?.ref ?? null;
+    return bestNetMatch(this.suggestInput(), s, id)?.name ?? null;
+  }
+
+  /** Best next component pair to autosuggest in the chain (near the mapped region). */
+  private chainSuggest(): { ltRef: string; kiRef: string } | null {
+    const r = chooseNextComponentPair(this.suggestInput());
+    return r ? { ltRef: r.ltRef, kiRef: r.kiRef } : null;
   }
 
   /** Run net/component inference to a fixpoint; returns the number of mappings added. */

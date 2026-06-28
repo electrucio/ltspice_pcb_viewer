@@ -45,10 +45,11 @@ Mapping is **deliberate** — clicking only selects, so a stray click never maps
 
 ### Chain of suggestions
 
-After you map a **component** pair, the mapper **pre-selects the next likely component
-pair** (auto-selected on both sides) — so you can map a whole connected cluster by
-pressing **M** repeatedly. The match uses a two-level similarity model (no reference
-designators, no geometry):
+**Clicking** an unmapped net or component auto-selects the **best contextual match** on
+the other side (if it clears a threshold) so you can confirm with **M**. After you map a
+**component** pair, the mapper also **pre-selects the next likely component pair** — so
+you can map a whole cluster by pressing **M** repeatedly. Both use one similarity model
+(no reference designators, no geometry):
 
 - **simple(a, b)** — one component vs one: `1.0` if already a confirmed mapping; `0` if
   a different type (R/C/D/L/Q); otherwise `0.4 + 0.6 · valueSimilarity` (engineering-aware,
@@ -60,6 +61,14 @@ designators, no geometry):
 - **net consistency** — confirmed net mappings are authoritative: if a candidate sits on
   an already-mapped net, its partner must sit on that net's counterpart. Agreement
   rewards; any disagreement is a strong penalty (effectively disqualifies the pair).
+
+**Nets** have a contextual similarity too (no *simple* level — net names/labels aren't
+trusted): two nets are similar when the components on them line up by `simple()`
+similarity (confirmed components dominate). Clicking a net suggests the best-matching net
+on the other side, above a threshold.
+
+A suggestion is only offered when it clears a minimum score, so weak/ambiguous matches
+are left for you to map manually.
 
 The suggested (candidate) side is restricted to the anchor's connected components for
 locality, but its match is searched across **all** components on the other side. This

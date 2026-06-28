@@ -71,7 +71,10 @@ text { fill: var(--ksv-symbol); }
 .ksv-root.has-selection .ksv-mark { opacity: 0.6; }
 
 .ksv-wire.ksv-on, .ksv-pin.ksv-on, .ksv-junction.ksv-on { opacity: 1 !important; stroke: var(--ksv-highlight); }
+.ksv-wire.ksv-on, .ksv-pin.ksv-on { stroke-width: 4px; }
 .ksv-junction.ksv-on { fill: var(--ksv-highlight); }
+/* fat translucent halo so a selected net really pops */
+.ksv-wire-hit.ksv-on, .ksv-pin-hit.ksv-on { stroke: var(--ksv-highlight); opacity: 0.30; }
 .ksv-component.ksv-on { opacity: 1 !important; }
 /* host of a selected net: keep the component visible (pin shows) without recoloring it */
 .ksv-component.ksv-on-host { opacity: 1 !important; }
@@ -83,8 +86,9 @@ text { fill: var(--ksv-symbol); }
 
 .ksv-wire.ksv-sel, .ksv-pin.ksv-sel { stroke: var(--ksv-select); }
 
-/* marks: faint persistent highlight of mapped items (shown when idle) */
-.ksv-wire.ksv-mark, .ksv-pin.ksv-mark { stroke: var(--ksv-mark); stroke-width: 2.6px; }
+/* marks: persistent highlight of mapped items */
+.ksv-wire.ksv-mark, .ksv-pin.ksv-mark { stroke: var(--ksv-mark); stroke-width: 3.4px; }
+.ksv-wire-hit.ksv-mark, .ksv-pin-hit.ksv-mark { stroke: var(--ksv-mark); opacity: 0.18; }
 .ksv-junction.ksv-mark { fill: var(--ksv-mark); }
 .ksv-component.ksv-mark .ksv-graphic { stroke: var(--ksv-mark); }
 .ksv-label.ksv-mark .ksv-label-text { fill: var(--ksv-mark); }

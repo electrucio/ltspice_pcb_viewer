@@ -1,78 +1,76 @@
 /**
- * "Chain of suggestions" — after an anchor component pair is mapped, propose the next
- * likely component pair using a two-level similarity model (no reference designators,
- * no geometry):
+ * Suggestion engine for the mapper — two-level similarity, topology-aware, no reference
+ * designators and no geometry.
  *
- *   simple(a, b)      one component vs one component:
- *                       1.0  if a and b are already a confirmed mapping;
- *                       0    if different type (R/C/D/L/Q);
- *                       0.4 + 0.6·valueSimilarity   otherwise (same type).
+ * COMPONENTS
+ *   simple(lt, ki)   one-to-one:
+ *                      1.0  if lt and ki are a confirmed mapping;
+ *                      0    if different type (R/C/D/L/Q);
+ *                      0.4 + 0.6·valueSimilarity   otherwise.
+ *   contextual(lt,ki) = simple(lt,ki)·(0.4 + 0.6·neighbourContext)  + netConsistency
+ *                     neighbourContext = average, over lt's connected components, of the
+ *                     best simple() to any of ki's connected components (confirmed
+ *                     neighbours count 1.0). netConsistency rewards sitting on confirmed
+ *                     net counterparts and strongly penalises contradicting them; unmapped
+ *                     nets are neutral.
  *
- *   contextual(a, b)  simple(a, b) modulated by how well a's connected components match
- *                     b's connected components — each neighbour pair scored by simple()
- *                     (so confirmed neighbours contribute 1.0). A candidate sitting next
- *                     to already-mapped components that line up scores high.
+ * NETS (no simple level — net names/labels are not trusted)
+ *   netContextual(lt, ki) = how well the components on lt match the components on ki,
+ *                           scored by simple() (so confirmed components dominate).
  *
- * On top of that, confirmed NET mappings are authoritative: if a candidate sits on a
- * mapped net, its partner must sit on that net's counterpart — agreement rewards, any
- * disagreement is a strong penalty (effectively disqualifying).
- *
- * For the chain we restrict the *candidate* side to the anchor's connected components
- * (locality / UX), but search ALL components on the other side for its best match.
- * Only R/C/D/L/Q are suggested; other parts are mapped manually.
- *
- * Pure and DOM-free so it can be unit-tested.
+ * A match is only proposed when it clears a threshold. The "best match" for an item is
+ * the highest-scoring item on the other side.
  */
 
-export interface ChainComp {
+export interface SuggestComp {
   ref: string;
   value: string;
   nets: string[];
 }
 
-export interface ChainParams {
-  anchorLt: ChainComp;
-  ltComps: ChainComp[];
-  kiComps: ChainComp[];
-  isMappedLt: (ref: string) => boolean;
-  isMappedKi: (ref: string) => boolean;
-  /** ltspice component ref -> mapped kicad component ref (or undefined) */
-  componentCounterpartLt: (ref: string) => string | undefined;
-  /** ltspice net name -> mapped kicad net name (or undefined) */
-  netCounterpartLt: (net: string) => string | undefined;
-  /** kicad net name -> mapped ltspice net name (or undefined) */
-  netCounterpartKi: (net: string) => string | undefined;
+export interface SuggestNet {
+  name: string;
+  comps: string[]; // real component refs connected to this net
 }
 
-export interface ChainSuggestion {
-  ltRef: string;
-  kiRef: string;
-  score: number;
+export interface SuggestInput {
+  ltComps: SuggestComp[];
+  kiComps: SuggestComp[];
+  ltNets: SuggestNet[];
+  kiNets: SuggestNet[];
+  compCounterpartLt: (ref: string) => string | undefined; // confirmed lt comp -> ki comp
+  netCounterpartLt: (name: string) => string | undefined;
+  netCounterpartKi: (name: string) => string | undefined;
+  compMappedLt: (ref: string) => boolean;
+  compMappedKi: (ref: string) => boolean;
+  netMappedLt: (name: string) => boolean;
+  netMappedKi: (name: string) => boolean;
 }
 
-const EASY_TYPES = new Set(["R", "C", "D", "L", "Q"]);
+export type Side = "lt" | "ki";
+
+export const COMPONENT_THRESHOLD = 0.5;
+export const NET_THRESHOLD = 0.5;
+const EASY = new Set(["R", "C", "D", "L", "Q"]);
 const MULT: Record<string, number> = { p: 1e-12, n: 1e-9, u: 1e-6, m: 1e-3, k: 1e3, meg: 1e6, g: 1e9 };
 
-/** Leading alphabetic part of a reference designator, upper-cased (R4 -> "R"). */
 export function componentType(ref: string): string {
   const m = ref.match(/^[A-Za-z]+/);
   return m ? m[0].toUpperCase() : "";
 }
 
-/** Parse an engineering value to a number, or null if non-numeric (e.g. "BD139"). */
 export function parseValue(raw: string): number | null {
   if (!raw) return null;
   const t = raw.trim().toLowerCase().replace(/µ/g, "u").replace(/ohms?|ω/g, "").trim();
-  let m = t.match(/^(\d*\.?\d+)(meg|[pnumkg])(\d+)$/); // 4k7, 3u3
+  let m = t.match(/^(\d*\.?\d+)(meg|[pnumkg])(\d+)$/);
   if (m) return parseFloat(`${m[1]}.${m[3]}`) * MULT[m[2]]!;
-  m = t.match(/^(\d*\.?\d+)\s*(meg|[pnumkg])$/); // 10k, 100n
+  m = t.match(/^(\d*\.?\d+)\s*(meg|[pnumkg])$/);
   if (m) return parseFloat(m[1]!) * MULT[m[2]]!;
-  m = t.match(/^(\d*\.?\d+)$/); // 220, 0.5
+  m = t.match(/^(\d*\.?\d+)$/);
   if (m) return parseFloat(m[1]!);
   return null;
 }
 
-/** 0..1 similarity of two values: numeric ratio, or string equality for non-numeric. */
 export function valueSimilarity(a: string, b: string): number {
   const pa = parseValue(a), pb = parseValue(b);
   if (pa != null && pb != null) {
@@ -84,78 +82,184 @@ export function valueSimilarity(a: string, b: string): number {
   return 0;
 }
 
-type Confirmed = (ltRef: string, kiRef: string) => boolean;
+interface Index {
+  ltComp: Map<string, SuggestComp>;
+  kiComp: Map<string, SuggestComp>;
+  ltNbr: Map<string, SuggestComp[]>;
+  kiNbr: Map<string, SuggestComp[]>;
+  ltNet: Map<string, SuggestNet>;
+  kiNet: Map<string, SuggestNet>;
+}
 
-/** simple(a,b): a is ltspice, b is kicad. */
-export function simpleSimilarity(lt: ChainComp, ki: ChainComp, confirmed: Confirmed): number {
-  if (confirmed(lt.ref, ki.ref)) return 1;
+function adjacency(comps: SuggestComp[]): Map<string, SuggestComp[]> {
+  const byNet = new Map<string, SuggestComp[]>();
+  for (const c of comps) for (const n of c.nets) (byNet.get(n) ?? byNet.set(n, []).get(n)!).push(c);
+  const byRef = new Map(comps.map((c) => [c.ref, c]));
+  const sets = new Map<string, Set<string>>(comps.map((c) => [c.ref, new Set<string>()]));
+  for (const list of byNet.values()) for (const a of list) for (const b of list) if (a.ref !== b.ref) sets.get(a.ref)!.add(b.ref);
+  const out = new Map<string, SuggestComp[]>();
+  for (const c of comps) out.set(c.ref, [...sets.get(c.ref)!].map((r) => byRef.get(r)!));
+  return out;
+}
+
+function makeIndex(input: SuggestInput): Index {
+  return {
+    ltComp: new Map(input.ltComps.map((c) => [c.ref, c])),
+    kiComp: new Map(input.kiComps.map((c) => [c.ref, c])),
+    ltNbr: adjacency(input.ltComps),
+    kiNbr: adjacency(input.kiComps),
+    ltNet: new Map(input.ltNets.map((n) => [n.name, n])),
+    kiNet: new Map(input.kiNets.map((n) => [n.name, n])),
+  };
+}
+
+/** simple similarity, always oriented (lt component vs ki component). */
+export function simpleSimilarity(lt: SuggestComp, ki: SuggestComp, input: SuggestInput): number {
+  if (input.compCounterpartLt(lt.ref) === ki.ref) return 1;
   if (componentType(lt.ref) !== componentType(ki.ref)) return 0;
   return 0.4 + 0.6 * valueSimilarity(lt.value, ki.value);
 }
 
-function neighbors(comp: ChainComp, all: ChainComp[]): ChainComp[] {
-  return all.filter((c) => c.ref !== comp.ref && c.nets.some((n) => comp.nets.includes(n)));
+function neighbourContext(ltNbrs: SuggestComp[], kiNbrs: SuggestComp[], input: SuggestInput): number {
+  if (ltNbrs.length === 0) return 0;
+  let sum = 0;
+  for (const na of ltNbrs) {
+    let best = 0;
+    for (const nb of kiNbrs) {
+      const v = simpleSimilarity(na, nb, input);
+      if (v > best) best = v;
+    }
+    sum += best;
+  }
+  return sum / ltNbrs.length;
 }
 
-export function chooseChainSuggestion(p: ChainParams): ChainSuggestion | null {
-  const confirmed: Confirmed = (l, k) => p.componentCounterpartLt(l) === k;
+/** Confirmed nets are authoritative: reward agreement, strongly penalise contradiction. */
+function netConsistency(lt: SuggestComp, ki: SuggestComp, input: SuggestInput): number {
+  let agree = 0, disagree = 0;
+  for (const n of lt.nets) {
+    const cp = input.netCounterpartLt(n);
+    if (cp == null) continue;
+    if (ki.nets.includes(cp)) agree++; else disagree++;
+  }
+  for (const n of ki.nets) {
+    const cp = input.netCounterpartKi(n);
+    if (cp == null) continue;
+    if (lt.nets.includes(cp)) agree++; else disagree++;
+  }
+  return 0.4 * agree - 5 * disagree;
+}
 
-  // adjacency precomputed once per side
-  const ltNbr = new Map<string, ChainComp[]>();
-  for (const c of p.ltComps) ltNbr.set(c.ref, neighbors(c, p.ltComps));
-  const kiNbr = new Map<string, ChainComp[]>();
-  for (const c of p.kiComps) kiNbr.set(c.ref, neighbors(c, p.kiComps));
+export function contextualComponentScore(lt: SuggestComp, ki: SuggestComp, input: SuggestInput, idx = makeIndex(input)): number {
+  const s = simpleSimilarity(lt, ki, input);
+  if (s <= 0) return -Infinity; // different type
+  const nb = neighbourContext(idx.ltNbr.get(lt.ref) ?? [], idx.kiNbr.get(ki.ref) ?? [], input);
+  return s * (0.4 + 0.6 * nb) + netConsistency(lt, ki, input);
+}
 
-  // candidates: the anchor's connected components (locality/UX), unmapped, easy types
-  const candidates = (ltNbr.get(p.anchorLt.ref) ?? []).filter(
-    (c) => EASY_TYPES.has(componentType(c.ref)) && !p.isMappedLt(c.ref),
-  );
-  // search the whole other side for the best contextual match
-  const pool = p.kiComps.filter((c) => EASY_TYPES.has(componentType(c.ref)) && !p.isMappedKi(c.ref));
+export interface CompMatch {
+  ref: string;
+  score: number;
+}
 
-  const contextual = (a: ChainComp, b: ChainComp): number => {
-    const s = simpleSimilarity(a, b, confirmed);
-    if (s <= 0) return 0;
-    const nbA = ltNbr.get(a.ref) ?? [];
-    const nbB = kiNbr.get(b.ref) ?? [];
-    if (nbA.length === 0) return s * 0.4;
-    let sum = 0;
-    for (const na of nbA) {
-      let bestN = 0;
-      for (const nb of nbB) {
-        const v = simpleSimilarity(na, nb, confirmed);
-        if (v > bestN) bestN = v;
-      }
-      sum += bestN;
+/** Highest-contextual component on the other side for `ref` (above threshold), or null. */
+export function bestComponentMatch(input: SuggestInput, side: Side, ref: string): CompMatch | null {
+  const idx = makeIndex(input);
+  let best: CompMatch | null = null;
+  if (side === "lt") {
+    const a = idx.ltComp.get(ref);
+    if (!a) return null;
+    for (const b of input.kiComps) {
+      if (!EASY.has(componentType(b.ref)) || input.compMappedKi(b.ref)) continue;
+      const sc = contextualComponentScore(a, b, input, idx);
+      if (sc >= COMPONENT_THRESHOLD && (!best || sc > best.score)) best = { ref: b.ref, score: sc };
     }
-    return s * (0.4 + 0.6 * (sum / nbA.length));
-  };
-
-  // Confirmed net mappings are authoritative: if a sits on a mapped net, b must sit on
-  // that net's counterpart (and vice versa). Agreement rewards; any disagreement is a
-  // strong penalty (a real match agrees on every mapped net it touches).
-  const netConsistency = (a: ChainComp, b: ChainComp): number => {
-    let agree = 0, disagree = 0;
-    for (const n of a.nets) {
-      const cp = p.netCounterpartLt(n);
-      if (cp == null) continue;
-      if (b.nets.includes(cp)) agree++; else disagree++;
+  } else {
+    const b = idx.kiComp.get(ref);
+    if (!b) return null;
+    for (const a of input.ltComps) {
+      if (!EASY.has(componentType(a.ref)) || input.compMappedLt(a.ref)) continue;
+      const sc = contextualComponentScore(a, b, input, idx);
+      if (sc >= COMPONENT_THRESHOLD && (!best || sc > best.score)) best = { ref: a.ref, score: sc };
     }
-    for (const n of b.nets) {
-      const cp = p.netCounterpartKi(n);
-      if (cp == null) continue;
-      if (a.nets.includes(cp)) agree++; else disagree++;
-    }
-    return 0.4 * agree - 5 * disagree;
-  };
+  }
+  return best;
+}
 
-  let best: ChainSuggestion | null = null;
+export interface PairMatch {
+  ltRef: string;
+  kiRef: string;
+  score: number;
+}
+
+/**
+ * Best next component pair to autosuggest in the chain. Candidates are preferentially
+ * near the already-mapped region (a connected component or one on a mapped net), for UX,
+ * but the best match is searched across all components.
+ */
+export function chooseNextComponentPair(input: SuggestInput): PairMatch | null {
+  const idx = makeIndex(input);
+  const unmappedLt = input.ltComps.filter((c) => EASY.has(componentType(c.ref)) && !input.compMappedLt(c.ref));
+  const onFrontier = (c: SuggestComp) =>
+    (idx.ltNbr.get(c.ref) ?? []).some((n) => input.compMappedLt(n.ref)) || c.nets.some((n) => input.netMappedLt(n));
+  const frontier = unmappedLt.filter(onFrontier);
+  const candidates = frontier.length ? frontier : unmappedLt;
+  const pool = input.kiComps.filter((c) => EASY.has(componentType(c.ref)) && !input.compMappedKi(c.ref));
+
+  let best: PairMatch | null = null;
   for (const a of candidates) {
     for (const b of pool) {
-      const ctx = contextual(a, b);
-      if (ctx <= 0) continue; // different type
-      const score = ctx + netConsistency(a, b);
-      if (score > 0 && (!best || score > best.score)) best = { ltRef: a.ref, kiRef: b.ref, score };
+      const sc = contextualComponentScore(a, b, input, idx);
+      if (sc >= COMPONENT_THRESHOLD && (!best || sc > best.score)) best = { ltRef: a.ref, kiRef: b.ref, score: sc };
+    }
+  }
+  return best;
+}
+
+/** Net contextual similarity: how well the components on each net line up (simple()). */
+export function netContextualScore(ltNet: SuggestNet, kiNet: SuggestNet, input: SuggestInput, idx = makeIndex(input)): number {
+  const cl = ltNet.comps.map((r) => idx.ltComp.get(r)).filter((c): c is SuggestComp => !!c);
+  const ck = kiNet.comps.map((r) => idx.kiComp.get(r)).filter((c): c is SuggestComp => !!c);
+  if (!cl.length || !ck.length) return 0;
+  let sa = 0;
+  for (const a of cl) {
+    let best = 0;
+    for (const b of ck) { const v = simpleSimilarity(a, b, input); if (v > best) best = v; }
+    sa += best;
+  }
+  let sb = 0;
+  for (const b of ck) {
+    let best = 0;
+    for (const a of cl) { const v = simpleSimilarity(a, b, input); if (v > best) best = v; }
+    sb += best;
+  }
+  return (sa / cl.length + sb / ck.length) / 2;
+}
+
+export interface NetMatch {
+  name: string;
+  score: number;
+}
+
+/** Highest-contextual net on the other side for `name` (above threshold), or null. */
+export function bestNetMatch(input: SuggestInput, side: Side, name: string): NetMatch | null {
+  const idx = makeIndex(input);
+  let best: NetMatch | null = null;
+  if (side === "lt") {
+    const a = idx.ltNet.get(name);
+    if (!a) return null;
+    for (const b of input.kiNets) {
+      if (input.netMappedKi(b.name)) continue;
+      const sc = netContextualScore(a, b, input, idx);
+      if (sc >= NET_THRESHOLD && (!best || sc > best.score)) best = { name: b.name, score: sc };
+    }
+  } else {
+    const b = idx.kiNet.get(name);
+    if (!b) return null;
+    for (const a of input.ltNets) {
+      if (input.netMappedLt(a.name)) continue;
+      const sc = netContextualScore(a, b, input, idx);
+      if (sc >= NET_THRESHOLD && (!best || sc > best.score)) best = { name: a.name, score: sc };
     }
   }
   return best;
