@@ -24,6 +24,7 @@ export {
   mutualComponentMatch,
   mutualNetMatch,
   chooseNextComponentPair,
+  chooseNextNetPair,
   contextualComponentScore,
   netContextualScore,
   simpleSimilarity,

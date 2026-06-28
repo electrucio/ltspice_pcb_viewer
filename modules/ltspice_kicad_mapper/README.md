@@ -47,9 +47,9 @@ Mapping is **deliberate** — clicking only selects, so a stray click never maps
 
 **Clicking** an unmapped net or component auto-selects the **best contextual match** on
 the other side (if it clears a threshold) so you can confirm with **M**. After you map a
-**component** pair, the mapper also **pre-selects the next likely component pair** — so
-you can map a whole cluster by pressing **M** repeatedly. Both use one similarity model
-(no reference designators, no geometry):
+pair, the mapper also **pre-selects the next likely pair of the same kind** (component
+after a component, net after a net) — so you can map a whole cluster by pressing **M**
+repeatedly. Everything uses one similarity model (no reference designators, no geometry):
 
 - **simple(a, b)** — one component vs one: `1.0` if already a confirmed mapping; `0` if
   a different type (R/C/D/L/Q); otherwise `0.4 + 0.6 · valueSimilarity` (engineering-aware,

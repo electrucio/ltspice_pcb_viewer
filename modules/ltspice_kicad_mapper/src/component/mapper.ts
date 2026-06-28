@@ -20,7 +20,7 @@ import "../../../kicad_schematic_viewer/src/index.js";
 import { MappingStore, serialize, type AvailableIds } from "../mapping/store.js";
 import type { Kind, Side, MappingFile } from "../mapping/format.js";
 import { Pairing } from "../interaction/pairing.js";
-import { mutualComponentMatch, mutualNetMatch, chooseNextComponentPair, type SuggestInput } from "../suggest/chain.js";
+import { mutualComponentMatch, mutualNetMatch, chooseNextComponentPair, chooseNextNetPair, type SuggestInput } from "../suggest/chain.js";
 import { STYLESHEET } from "./style.js";
 
 interface CompInfo { ref: string; value: string; nets: string[]; pos: { x: number; y: number } }
@@ -249,17 +249,22 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     const inferred = this.runInference();
     this.updateMarks();
     this.autoSide = null;
-    // chain of suggestions: after a component map, pre-select the next likely pair
-    const next = m.kind === "component" ? this.chainSuggest() : null;
+    // chain of suggestions: after a map, pre-select the next likely pair OF THE SAME KIND
+    const next = this.chainSuggest(m.kind);
     if (next) {
-      this.pairing.setSingle("ltspice", "component", next.ltRef);
-      this.pairing.select("kicad", "component", next.kiRef);
+      this.pairing.setSingle("ltspice", m.kind, next.lt);
+      this.pairing.select("kicad", m.kind, next.ki);
       this.autoSide = "kicad";
-      this.setTab("ltspice", "component");
-      this.setTab("kicad", "component");
-      // bring the anchor + suggestion into view so the suggested parts are easy to find
-      this.sides.ltspice.viewer.zoomToComponents([m.ltspice, next.ltRef]);
-      this.sides.kicad.viewer.zoomToComponents([m.kicad, next.kiRef]);
+      this.setTab("ltspice", m.kind);
+      this.setTab("kicad", m.kind);
+      // bring the anchor + suggestion into view so the suggested items are easy to find
+      if (m.kind === "component") {
+        this.sides.ltspice.viewer.zoomToComponents([m.ltspice, next.lt]);
+        this.sides.kicad.viewer.zoomToComponents([m.kicad, next.ki]);
+      } else {
+        this.sides.ltspice.viewer.zoomToNet(next.lt);
+        this.sides.kicad.viewer.zoomToNet(next.ki);
+      }
     } else {
       // focus the new pair as a single mapped selection (cross-probed green on both)
       this.pairing.setSingle("ltspice", m.kind, m.ltspice);
@@ -268,7 +273,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     this.emitChange();
     this.refresh();
     const base = `Mapped ${m.kind}: ${m.ltspice} ↔ ${m.kicad}${inferred ? ` (+${inferred} inferred)` : ""}`;
-    this.setStatus(next ? `${base}. Next suggestion: ${next.ltRef} ↔ ${next.kiRef} — press M` : base);
+    this.setStatus(next ? `${base}. Next suggestion: ${next.lt} ↔ ${next.ki} — press M` : base);
   }
 
   private unmapActive(): void {
@@ -329,10 +334,15 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     return mutualNetMatch(this.suggestInput(), s, id)?.name ?? null;
   }
 
-  /** Best next component pair to autosuggest in the chain (near the mapped region). */
-  private chainSuggest(): { ltRef: string; kiRef: string } | null {
-    const r = chooseNextComponentPair(this.suggestInput());
-    return r ? { ltRef: r.ltRef, kiRef: r.kiRef } : null;
+  /** Best next pair (same kind) to autosuggest in the chain, near the mapped region. */
+  private chainSuggest(kind: Kind): { lt: string; ki: string } | null {
+    const input = this.suggestInput();
+    if (kind === "component") {
+      const r = chooseNextComponentPair(input);
+      return r ? { lt: r.ltRef, ki: r.kiRef } : null;
+    }
+    const r = chooseNextNetPair(input);
+    return r ? { lt: r.ltNet, ki: r.kiNet } : null;
   }
 
   /** Run net/component inference to a fixpoint; returns the number of mappings added. */

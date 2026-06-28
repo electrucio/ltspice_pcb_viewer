@@ -290,3 +290,22 @@ export function mutualNetMatch(input: SuggestInput, side: Side, name: string): N
   if (!back || back.name === name) return fwd;
   return fwd.score >= back.score * MUTUAL_RATIO ? fwd : null;
 }
+
+export interface NetPairMatch {
+  ltNet: string;
+  kiNet: string;
+  score: number;
+}
+
+/** Best next net pair to autosuggest in the chain (preferring nets near mapped parts). */
+export function chooseNextNetPair(input: SuggestInput): NetPairMatch | null {
+  const unmapped = input.ltNets.filter((n) => !input.netMappedLt(n.name));
+  const frontier = unmapped.filter((n) => n.comps.some((r) => input.compMappedLt(r)));
+  const candidates = frontier.length ? frontier : unmapped;
+  let best: NetPairMatch | null = null;
+  for (const a of candidates) {
+    const match = mutualNetMatch(input, "lt", a.name);
+    if (match && (!best || match.score > best.score)) best = { ltNet: a.name, kiNet: match.name, score: match.score };
+  }
+  return best;
+}
