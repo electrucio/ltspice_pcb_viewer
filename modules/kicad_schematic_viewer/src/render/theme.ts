@@ -75,8 +75,10 @@ svg.ksv-panning { cursor: grabbing; }
 .ksv-component.ksv-on { opacity: 1 !important; }
 /* host of a selected net: keep the component visible (pin shows) without recoloring it */
 .ksv-component.ksv-on-host { opacity: 1 !important; }
-.ksv-component.ksv-on .ksv-graphic { stroke: var(--ksv-select); }
+.ksv-component.ksv-on .ksv-graphic { stroke: var(--ksv-select); stroke-width: 0.4; }
 .ksv-component.ksv-on .ksv-graphic.fill-outline { fill: var(--ksv-select); }
+/* prominent box around a selected/suggested component so it's easy to spot */
+.ksv-component.ksv-on .ksv-comp-hit { fill: var(--ksv-highlight); fill-opacity: 0.16; stroke: var(--ksv-highlight); stroke-width: 2.5px; vector-effect: non-scaling-stroke; }
 .ksv-label.ksv-on { opacity: 1 !important; }
 
 .ksv-wire.ksv-sel, .ksv-pin.ksv-sel, .ksv-junction.ksv-sel { stroke: var(--ksv-select); stroke-width: 0.3; }
