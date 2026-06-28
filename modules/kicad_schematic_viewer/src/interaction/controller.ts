@@ -245,8 +245,20 @@ export class ViewerController {
         : box;
     }
     if (!b) return;
-    const m = Math.max((b.maxX - b.minX) * 0.6, (b.maxY - b.minY) * 0.6, 10);
-    this.fit({ minX: b.minX - m, minY: b.minY - m, maxX: b.maxX + m, maxY: b.maxY + m });
+    this.fitWithContext(b);
+  }
+
+  /**
+   * Fit to a target box but keep surrounding context: the view spans at least a fraction
+   * of the whole schematic (and ~4x the target), centred on the target — never a tight crop.
+   */
+  private fitWithContext(b: BBox, minFraction = 0.45): void {
+    const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+    const fullW = Math.max(this.bbox.maxX - this.bbox.minX, 1);
+    const fullH = Math.max(this.bbox.maxY - this.bbox.minY, 1);
+    const w = Math.min(Math.max((b.maxX - b.minX) * 4, fullW * minFraction), fullW * 1.1);
+    const h = Math.min(Math.max((b.maxY - b.minY) * 4, fullH * minFraction), fullH * 1.1);
+    this.fit({ minX: cx - w / 2, minY: cy - h / 2, maxX: cx + w / 2, maxY: cy + h / 2 });
   }
 
   zoomToNet(name: string): void {
@@ -259,9 +271,6 @@ export class ViewerController {
       if (p.pos.x > b.maxX) b.maxX = p.pos.x;
       if (p.pos.y > b.maxY) b.maxY = p.pos.y;
     }
-    if (isFinite(b.minX)) {
-      const m = 5;
-      this.fit({ minX: b.minX - m, minY: b.minY - m, maxX: b.maxX + m, maxY: b.maxY + m });
-    }
+    if (isFinite(b.minX)) this.fitWithContext(b);
   }
 }
