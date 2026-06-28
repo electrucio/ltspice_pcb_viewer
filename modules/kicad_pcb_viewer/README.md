@@ -42,6 +42,22 @@ npm test        # parser tests (counts + pad-on-track coincidence)
 npm run build   # library bundle in dist/
 ```
 
+## Export the demo as a static page
+
+`npm run build:demo` bundles the demo into a **single self-contained**
+`dist-demo/index.html` (JS, CSS, and the default `poweramp.kicad_pcb` all inlined —
+no runtime `fetch`). It uses a relative `base`, so it works at any URL or subpath:
+
+```bash
+npm run build:demo
+# then publish dist-demo/index.html anywhere static, e.g. a GitHub Pages repo:
+#   cp dist-demo/index.html /path/to/<user>.github.io/pcb.html
+# it even opens straight from file://
+```
+
+The in-page file picker still works on the static page (it reads the chosen
+`.kicad_pcb` locally in the browser — nothing is uploaded).
+
 ## Notes / limitations (v1)
 - The footprint/pad rotation sign (`ROT_SIGN`) is locked empirically (pads coincide with
   their nets' track endpoints). All poweramp footprints are front-side & through-hole;
