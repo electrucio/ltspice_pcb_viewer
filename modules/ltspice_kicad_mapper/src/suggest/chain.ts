@@ -39,7 +39,6 @@ export interface SuggestInput {
   ltNets: SuggestNet[];
   kiNets: SuggestNet[];
   compCounterpartLt: (ref: string) => string | undefined; // confirmed lt comp -> ki comp
-  compCounterpartKi: (ref: string) => string | undefined; // confirmed ki comp -> lt comp
   netCounterpartLt: (name: string) => string | undefined;
   netCounterpartKi: (name: string) => string | undefined;
   compMappedLt: (ref: string) => boolean;
@@ -234,27 +233,24 @@ export function chooseNextComponentPair(input: SuggestInput): PairMatch | null {
   return best;
 }
 
-/**
- * Net contextual similarity, driven ONLY by confirmed component mappings — net names and
- * raw type/value overlap are not trusted. A confirmed component on one net must have its
- * counterpart on the other (agree); if it's elsewhere, that's a contradiction (disagree).
- * Returns 0 when there is no confirmed anchor at all, so nets aren't matched on a guess.
- *   score = agree / (agree + 2·disagree)   ∈ (0, 1]
- */
-export function netContextualScore(ltNet: SuggestNet, kiNet: SuggestNet, input: SuggestInput): number {
-  let agree = 0, disagree = 0;
-  for (const r of ltNet.comps) {
-    if (!input.compMappedLt(r)) continue;
-    const cp = input.compCounterpartLt(r);
-    if (cp && kiNet.comps.includes(cp)) agree++; else disagree++;
+/** Net contextual similarity: how well the components on each net line up (simple()). */
+export function netContextualScore(ltNet: SuggestNet, kiNet: SuggestNet, input: SuggestInput, idx = makeIndex(input)): number {
+  const cl = ltNet.comps.map((r) => idx.ltComp.get(r)).filter((c): c is SuggestComp => !!c);
+  const ck = kiNet.comps.map((r) => idx.kiComp.get(r)).filter((c): c is SuggestComp => !!c);
+  if (!cl.length || !ck.length) return 0;
+  let sa = 0;
+  for (const a of cl) {
+    let best = 0;
+    for (const b of ck) { const v = simpleSimilarity(a, b, input); if (v > best) best = v; }
+    sa += best;
   }
-  for (const r of kiNet.comps) {
-    if (!input.compMappedKi(r)) continue;
-    const cp = input.compCounterpartKi(r);
-    if (cp && ltNet.comps.includes(cp)) agree++; else disagree++;
+  let sb = 0;
+  for (const b of ck) {
+    let best = 0;
+    for (const a of cl) { const v = simpleSimilarity(a, b, input); if (v > best) best = v; }
+    sb += best;
   }
-  if (agree === 0) return 0;
-  return agree / (agree + 2 * disagree);
+  return (sa / cl.length + sb / ck.length) / 2;
 }
 
 export interface NetMatch {
@@ -271,7 +267,7 @@ export function bestNetMatch(input: SuggestInput, side: Side, name: string): Net
     if (!a) return null;
     for (const b of input.kiNets) {
       if (input.netMappedKi(b.name)) continue;
-      const sc = netContextualScore(a, b, input);
+      const sc = netContextualScore(a, b, input, idx);
       if (sc >= NET_THRESHOLD && (!best || sc > best.score)) best = { name: b.name, score: sc };
     }
   } else {
@@ -279,7 +275,7 @@ export function bestNetMatch(input: SuggestInput, side: Side, name: string): Net
     if (!b) return null;
     for (const a of input.ltNets) {
       if (input.netMappedLt(a.name)) continue;
-      const sc = netContextualScore(a, b, input);
+      const sc = netContextualScore(a, b, input, idx);
       if (sc >= NET_THRESHOLD && (!best || sc > best.score)) best = { name: a.name, score: sc };
     }
   }

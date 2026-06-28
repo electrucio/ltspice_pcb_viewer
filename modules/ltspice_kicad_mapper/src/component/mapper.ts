@@ -318,7 +318,6 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       ltNets: nets(this.sides.ltspice),
       kiNets: nets(this.sides.kicad),
       compCounterpartLt: (r) => this.store.counterpart("component", "ltspice", r),
-      compCounterpartKi: (r) => this.store.counterpart("component", "kicad", r),
       netCounterpartLt: (n) => this.store.counterpart("net", "ltspice", n),
       netCounterpartKi: (n) => this.store.counterpart("net", "kicad", n),
       compMappedLt: (r) => this.store.isMapped("component", "ltspice", r),

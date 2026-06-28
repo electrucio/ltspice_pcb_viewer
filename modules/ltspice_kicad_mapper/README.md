@@ -62,12 +62,10 @@ repeatedly. Everything uses one similarity model (no reference designators, no g
   an already-mapped net, its partner must sit on that net's counterpart. Agreement
   rewards; any disagreement is a strong penalty (effectively disqualifies the pair).
 
-**Nets** are matched **only through confirmed component mappings** (net names/labels are
-not trusted, and raw part overlap is too ambiguous): a confirmed component on one net must
-have its counterpart on the other (agree), otherwise it contradicts (disagree), scored
-`agree / (agree + 2·disagree)`. A net with no confirmed component scores 0 — so nets are
-never guessed before some components are mapped. Clicking a net suggests the best match
-above a threshold.
+**Nets** have a contextual similarity too (no *simple* level — net names/labels aren't
+trusted): two nets are similar when the components on them line up by `simple()`
+similarity (confirmed components dominate). Clicking a net suggests the best-matching net
+on the other side, above a threshold.
 
 A suggestion is only offered when it clears a minimum score, so weak/ambiguous matches
 are left for you to map manually.
