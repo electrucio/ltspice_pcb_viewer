@@ -1,37 +1,37 @@
 /**
  * "Chain of suggestions" — after an anchor component pair is mapped, propose the next
- * likely component pair by walking the netlist outward from the anchor.
+ * likely component pair using a two-level similarity model (no reference designators,
+ * no geometry):
  *
- * Candidates on each side are components *adjacent to the anchor* (sharing a net with
- * it). A candidate pair is scored by:
- *   - same component type (R/C/D/L/Q) — a hard gate;
- *   - number of shared already-mapped nets (topological agreement) — strongest;
- *   - shared already-mapped *component* neighbors: a candidate connecting to a mapped
- *     component scores higher when its other-side partner connects to that component's
- *     mapped counterpart (reference designators are NOT used — they change between tools);
- *   - same value (engineering-notation aware: 4k7 == 4.7k, 3u3 == 3.3µ);
- *   - proximity / direction from the anchor (tie-breakers, keep the chain local).
+ *   simple(a, b)      one component vs one component:
+ *                       1.0  if a and b are already a confirmed mapping;
+ *                       0    if different type (R/C/D/L/Q);
+ *                       0.4 + 0.6·valueSimilarity   otherwise (same type).
  *
- * Only "easy" passive/discrete types are suggested; everything else is left to manual
- * mapping. Pure and DOM-free so it can be unit-tested.
+ *   contextual(a, b)  simple(a, b) modulated by how well a's connected components match
+ *                     b's connected components — each neighbour pair scored by simple()
+ *                     (so confirmed neighbours contribute 1.0). A candidate sitting next
+ *                     to already-mapped components that line up scores high.
+ *
+ * For the chain we restrict the *candidate* side to the anchor's connected components
+ * (locality / UX), but search ALL components on the other side for its best contextual
+ * match. Only R/C/D/L/Q are suggested; other parts are mapped manually.
+ *
+ * Pure and DOM-free so it can be unit-tested.
  */
 
 export interface ChainComp {
   ref: string;
   value: string;
   nets: string[];
-  pos: { x: number; y: number };
 }
 
 export interface ChainParams {
   anchorLt: ChainComp;
-  anchorKi: ChainComp;
   ltComps: ChainComp[];
   kiComps: ChainComp[];
   isMappedLt: (ref: string) => boolean;
   isMappedKi: (ref: string) => boolean;
-  /** ltspice net name -> mapped kicad net name (or undefined) */
-  netCounterpartLt: (net: string) => string | undefined;
   /** ltspice component ref -> mapped kicad component ref (or undefined) */
   componentCounterpartLt: (ref: string) => string | undefined;
 }
@@ -64,63 +64,70 @@ export function parseValue(raw: string): number | null {
   return null;
 }
 
-function valuesMatch(a: string, b: string): boolean {
-  const va = parseValue(a), vb = parseValue(b);
-  if (va != null && vb != null) return Math.abs(va - vb) <= 1e-12 + 0.01 * Math.max(Math.abs(va), Math.abs(vb));
-  if (!a || !b) return false;
-  return a.trim().toLowerCase() === b.trim().toLowerCase();
+/** 0..1 similarity of two values: numeric ratio, or string equality for non-numeric. */
+export function valueSimilarity(a: string, b: string): number {
+  const pa = parseValue(a), pb = parseValue(b);
+  if (pa != null && pb != null) {
+    const hi = Math.max(Math.abs(pa), Math.abs(pb));
+    const lo = Math.min(Math.abs(pa), Math.abs(pb));
+    return hi === 0 ? 1 : lo / hi;
+  }
+  if (a && b && a.trim().toLowerCase() === b.trim().toLowerCase()) return 1;
+  return 0;
 }
 
-function unit(dx: number, dy: number): { x: number; y: number } | null {
-  const len = Math.hypot(dx, dy);
-  return len < 1e-6 ? null : { x: dx / len, y: dy / len };
+type Confirmed = (ltRef: string, kiRef: string) => boolean;
+
+/** simple(a,b): a is ltspice, b is kicad. */
+export function simpleSimilarity(lt: ChainComp, ki: ChainComp, confirmed: Confirmed): number {
+  if (confirmed(lt.ref, ki.ref)) return 1;
+  if (componentType(lt.ref) !== componentType(ki.ref)) return 0;
+  return 0.4 + 0.6 * valueSimilarity(lt.value, ki.value);
 }
 
-function sharesNet(a: ChainComp, b: ChainComp): boolean {
-  return a.nets.some((n) => b.nets.includes(n));
+function neighbors(comp: ChainComp, all: ChainComp[]): ChainComp[] {
+  return all.filter((c) => c.ref !== comp.ref && c.nets.some((n) => comp.nets.includes(n)));
 }
 
 export function chooseChainSuggestion(p: ChainParams): ChainSuggestion | null {
-  const ltN = p.ltComps.filter(
-    (c) => c.ref !== p.anchorLt.ref && EASY_TYPES.has(componentType(c.ref)) && !p.isMappedLt(c.ref) && sharesNet(c, p.anchorLt),
-  );
-  const kiN = p.kiComps.filter(
-    (c) => c.ref !== p.anchorKi.ref && EASY_TYPES.has(componentType(c.ref)) && !p.isMappedKi(c.ref) && sharesNet(c, p.anchorKi),
-  );
+  const confirmed: Confirmed = (l, k) => p.componentCounterpartLt(l) === k;
 
-  // normalize distances per side so we can prefer the nearest connected neighbor
-  const dist = (a: ChainComp, b: ChainComp) => Math.hypot(a.pos.x - b.pos.x, a.pos.y - b.pos.y);
-  const maxLt = Math.max(1e-6, ...ltN.map((c) => dist(c, p.anchorLt)));
-  const maxKi = Math.max(1e-6, ...kiN.map((c) => dist(c, p.anchorKi)));
+  // adjacency precomputed once per side
+  const ltNbr = new Map<string, ChainComp[]>();
+  for (const c of p.ltComps) ltNbr.set(c.ref, neighbors(c, p.ltComps));
+  const kiNbr = new Map<string, ChainComp[]>();
+  for (const c of p.kiComps) kiNbr.set(c.ref, neighbors(c, p.kiComps));
+
+  // candidates: the anchor's connected components (locality/UX), unmapped, easy types
+  const candidates = (ltNbr.get(p.anchorLt.ref) ?? []).filter(
+    (c) => EASY_TYPES.has(componentType(c.ref)) && !p.isMappedLt(c.ref),
+  );
+  // search the whole other side for the best contextual match
+  const pool = p.kiComps.filter((c) => EASY_TYPES.has(componentType(c.ref)) && !p.isMappedKi(c.ref));
+
+  const contextual = (a: ChainComp, b: ChainComp): number => {
+    const s = simpleSimilarity(a, b, confirmed);
+    if (s <= 0) return 0;
+    const nbA = ltNbr.get(a.ref) ?? [];
+    const nbB = kiNbr.get(b.ref) ?? [];
+    if (nbA.length === 0) return s * 0.4;
+    let sum = 0;
+    for (const na of nbA) {
+      let bestN = 0;
+      for (const nb of nbB) {
+        const v = simpleSimilarity(na, nb, confirmed);
+        if (v > bestN) bestN = v;
+      }
+      sum += bestN;
+    }
+    return s * (0.4 + 0.6 * (sum / nbA.length));
+  };
 
   let best: ChainSuggestion | null = null;
-  for (const n of ltN) {
-    // kicad counterparts of the already-mapped components that N connects to (on the lt side)
-    const expectedKiNeighbors = new Set(
-      p.ltComps
-        .filter((c) => c.ref !== n.ref && p.isMappedLt(c.ref) && sharesNet(c, n))
-        .map((c) => p.componentCounterpartLt(c.ref))
-        .filter((r): r is string => !!r),
-    );
-    for (const mc of kiN) {
-      if (componentType(n.ref) !== componentType(mc.ref)) continue; // type gate
-      const sharedMapped = n.nets.filter((net) => {
-        const cp = p.netCounterpartLt(net);
-        return cp != null && mc.nets.includes(cp);
-      }).length;
-      // does mc connect to the same already-mapped components (by mapping) that n connects to?
-      const sharedMappedNeighbors = p.kiComps.filter(
-        (c) => c.ref !== mc.ref && expectedKiNeighbors.has(c.ref) && sharesNet(c, mc),
-      ).length;
-      const valueMatch = valuesMatch(n.value, mc.value);
-      if (!(sharedMapped > 0 || valueMatch || sharedMappedNeighbors > 0)) continue; // need a real signal beyond type
-      const d1 = unit(n.pos.x - p.anchorLt.pos.x, n.pos.y - p.anchorLt.pos.y);
-      const d2 = unit(mc.pos.x - p.anchorKi.pos.x, mc.pos.y - p.anchorKi.pos.y);
-      const dir = d1 && d2 ? Math.max(0, d1.x * d2.x + d1.y * d2.y) : 0;
-      // prefer the nearest neighbor on each side, so the chain stays local & easy to find
-      const proximity = (1 - dist(n, p.anchorLt) / maxLt) * 0.5 + (1 - dist(mc, p.anchorKi) / maxKi) * 0.5;
-      const score = 3 * sharedMapped + 2 * sharedMappedNeighbors + (valueMatch ? 3 : 0) + 0.5 * dir + proximity;
-      if (!best || score > best.score) best = { ltRef: n.ref, kiRef: mc.ref, score };
+  for (const a of candidates) {
+    for (const b of pool) {
+      const score = contextual(a, b);
+      if (score > 0 && (!best || score > best.score)) best = { ltRef: a.ref, kiRef: b.ref, score };
     }
   }
   return best;

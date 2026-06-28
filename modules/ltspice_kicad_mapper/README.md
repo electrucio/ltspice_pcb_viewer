@@ -45,25 +45,24 @@ Mapping is **deliberate** — clicking only selects, so a stray click never maps
 
 ### Chain of suggestions
 
-After you map a **component** pair, the mapper walks outward and **pre-selects the next
-likely component pair** (auto-selected on both sides) — so you can map a whole connected
-cluster by pressing **M** repeatedly. Candidates are components *adjacent to the anchor*
-(sharing a net) on each side, scored by:
+After you map a **component** pair, the mapper **pre-selects the next likely component
+pair** (auto-selected on both sides) — so you can map a whole connected cluster by
+pressing **M** repeatedly. The match uses a two-level similarity model (no reference
+designators, no geometry):
 
-- same type (R/C/D/L/Q) — a hard gate; other parts (pots, sources, connectors) are left
-  to manual mapping;
-- shared already-mapped nets (topology) — strongest signal;
-- shared already-mapped **component** neighbors — if a candidate connects to a mapped
-  component, the other-side candidate that connects to its mapped counterpart scores
-  higher (this compounds as the chain grows);
-- same value (engineering-aware: `4k7` == `4.7k`);
-- **proximity** to the anchor — the nearest directly-connected neighbor is preferred, so
-  the chain crawls locally instead of jumping around; direction is a final tie-breaker.
+- **simple(a, b)** — one component vs one: `1.0` if already a confirmed mapping; `0` if
+  a different type (R/C/D/L/Q); otherwise `0.4 + 0.6 · valueSimilarity` (engineering-aware,
+  e.g. `4k7` == `4.7k`).
+- **contextual(a, b)** — `simple(a, b)` boosted by how well `a`'s connected components
+  match `b`'s connected components (each neighbour pair scored by *simple*; confirmed
+  neighbours count `1.0`). A candidate sitting next to already-mapped parts that line up
+  scores highest.
 
-Reference designators are **not** used — they frequently differ between the two tools.
-
-Both schematics **auto-zoom** to the anchor + suggestion, so the suggested parts are easy
-to find. If the suggestion is wrong, click the correct counterpart before pressing M.
+The suggested (candidate) side is restricted to the anchor's connected components for
+locality, but its match is searched across **all** components on the other side. This
+matches even active parts whose values differ across tools (transistors, diodes), via
+context alone. Both schematics **auto-zoom** to the anchor + suggestion; if a suggestion
+is wrong, click the correct counterpart before pressing M.
 
 ### Inference (runs after every map / import)
 

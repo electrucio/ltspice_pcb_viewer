@@ -309,13 +309,11 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     const ltComps = this.sides.ltspice.comps;
     const kiComps = this.sides.kicad.comps;
     const anchorLt = ltComps.find((c) => c.ref === anchorLtRef);
-    const anchorKi = kiComps.find((c) => c.ref === anchorKiRef);
-    if (!anchorLt || !anchorKi) return null;
+    if (!anchorLt || !kiComps.some((c) => c.ref === anchorKiRef)) return null;
     const res = chooseChainSuggestion({
-      anchorLt, anchorKi, ltComps, kiComps,
+      anchorLt, ltComps, kiComps,
       isMappedLt: (r) => this.store.isMapped("component", "ltspice", r),
       isMappedKi: (r) => this.store.isMapped("component", "kicad", r),
-      netCounterpartLt: (net) => this.store.counterpart("net", "ltspice", net),
       componentCounterpartLt: (r) => this.store.counterpart("component", "ltspice", r),
     });
     return res ? { ltRef: res.ltRef, kiRef: res.kiRef } : null;
