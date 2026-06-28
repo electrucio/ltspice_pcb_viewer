@@ -106,7 +106,6 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     this.pairing.clear();
     this.autoSide = null;
     this.runInference();
-    this.updateMarks();
     this.refresh();
     this.updateCounts();
     this.emitChange();
@@ -195,7 +194,6 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       st.nets = viewer.getNets();
       st.comps = viewer.getComponents();
       fname.textContent = st.source || `${st.nets.length} nets · ${st.comps.length} parts`;
-      this.updateMarks();
       this.refresh();
       this.updateCounts();
     });
@@ -247,7 +245,6 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       return;
     }
     const inferred = this.runInference();
-    this.updateMarks();
     this.autoSide = null;
     // chain of suggestions: after a map, pre-select the next likely pair OF THE SAME KIND
     const next = this.chainSuggest(m.kind);
@@ -281,7 +278,6 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     if (!removed) { this.setStatus("Select a mapped item first, then Unmap"); return; }
     this.pairing.clear();
     this.autoSide = null;
-    this.updateMarks();
     this.updateCounts();
     this.emitChange();
     this.refresh();
@@ -397,19 +393,30 @@ export class LtspiceKicadMapperElement extends HTMLElement {
 
   // ---- highlighting ------------------------------------------------------
 
-  /** Persistent marks: every mapped net/part is marked (thicker) on both sides, always. */
-  private updateMarks(): void {
+  /** Faintly mark every mapped net/part on both sides — shown only when idle. */
+  private applyMarks(): void {
     for (const side of ["ltspice", "kicad"] as Side[]) {
       const v = this.sides[side].viewer;
-      v.clearMarks();
       v.markNets(this.store.entries("net").map((p) => p[side]));
       v.markComponents(this.store.entries("component").map((p) => p[side]));
     }
   }
 
-  /** Repaint the selection layer (marks are managed separately by updateMarks). */
+  /**
+   * Repaint highlights. While something is selected, show ONLY the active pair (clicked
+   * item + its counterpart); when nothing is selected, faintly mark all mapped items.
+   */
   private refresh(): void {
-    for (const side of ["ltspice", "kicad"] as Side[]) this.sides[side].viewer.clearHighlights();
+    for (const side of ["ltspice", "kicad"] as Side[]) {
+      this.sides[side].viewer.clearHighlights();
+      this.sides[side].viewer.clearMarks();
+    }
+    const active = !!(this.pairing.ltspice || this.pairing.kicad);
+    if (!active) {
+      this.applyMarks();
+      this.renderLists();
+      return;
+    }
     for (const side of ["ltspice", "kicad"] as Side[]) {
       const sel = this.pairing[side];
       if (!sel) continue;

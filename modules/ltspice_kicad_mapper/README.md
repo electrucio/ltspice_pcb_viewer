@@ -38,8 +38,9 @@ Mapping is **deliberate** — clicking only selects, so a stray click never maps
   previously-mapped pair); clicking **empty space** unselects **both** sides.
 - Click an already-mapped item → both sides highlight green (cross-probe).
 - **Unmap** breaks the active pair; **Clear** drops the selection.
-- Every mapped net/part is **always drawn slightly thicker** (marked) on both sides, so
-  what's done stays visible while you work.
+- While something is selected, **only the active pair** is highlighted; when nothing is
+  selected, all mapped nets/parts are faintly **marked** on both sides so you can see
+  what's done at a glance.
 - The per-side **Nets/Components** lists show mapped status (`→ counterpart`) + counts.
 - **Export mapping** downloads JSON; **Import mapping** restores it (stale ids pruned).
 
