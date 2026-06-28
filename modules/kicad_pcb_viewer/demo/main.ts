@@ -1,8 +1,9 @@
 import "../src/index.js";
 import type { KicadPcbElement, PcbComponentInfo } from "../src/index.js";
-// Default board inlined at build time (?raw) so the demo is self-contained —
-// no runtime fetch, works as a single static .html on any host.
-import defaultPcb from "./poweramp.kicad_pcb?raw";
+// Default board inlined at build time so the demo is self-contained (no runtime
+// fetch, works as a single static .html). Override which board is baked in with
+//   BOARD=/path/to/your.kicad_pcb npm run build:demo
+import { text as defaultPcb, name as defaultName } from "virtual:default-board";
 
 const pcb = document.getElementById("pcb") as KicadPcbElement;
 const layersEl = document.getElementById("layers")!;
@@ -99,4 +100,5 @@ fileInput.onchange = async () => {
 };
 
 // load the inlined default board
+document.getElementById("fname")!.textContent = defaultName;
 pcb.loadFromString(defaultPcb);

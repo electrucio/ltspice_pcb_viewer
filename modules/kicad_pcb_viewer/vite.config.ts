@@ -1,7 +1,9 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
+import { defaultBoard } from "./vite.default-board.js";
 
 export default defineConfig({
+  plugins: [defaultBoard()],
   server: { fs: { allow: [resolve(__dirname)] } },
   build: {
     lib: {
