@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LTspice ↔ KiCad — read-only cross-probe</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body { display: flex; flex-direction: column; height: 100vh;
+        font-family: -apple-system, system-ui, sans-serif; font-size: 13px; color: #11161c; background: #fff; }
+      .bar { flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+        padding: 8px 12px; background: #f3f5f8; border-bottom: 1px solid #c9d1da; }
+      .bar .meta { color: #5b6673; margin-left: auto; }
+      .panes { flex: 1 1 auto; display: flex; min-height: 0; }
+      .pane { flex: 1 1 50%; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid #c9d1da; }
+      .pane:last-child { border-right: none; }
+      .ph { flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+        padding: 6px 12px; background: #f3f5f8; border-bottom: 1px solid #c9d1da; font-weight: 700; }
+      .ph small { color: #5b6673; font-weight: 400; margin-left: auto; }
+      .seg { display: inline-flex; border: 1px solid #c9d1da; border-radius: 6px; overflow: hidden; }
+      .seg button { padding: 3px 10px; background: #fff; color: #5b6673; border: none;
+        border-left: 1px solid #c9d1da; cursor: pointer; font: inherit; font-weight: 600; }
+      .seg button:first-child { border-left: none; }
+      .seg button.active { background: #1f6feb; color: #fff; }
+      .hdr-btn { padding: 3px 10px; background: #fff; color: #5b6673; border: 1px solid #c9d1da;
+        border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600; }
+      .hdr-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+      ltspice-schematic, kicad-schematic, kicad-pcb { flex: 1 1 60%; min-height: 0; display: block; }
+      .hidden { display: none; }
+
+      /* read-only nets/components sidebar (plain CSS — old-Safari safe) */
+      .lists { flex: 0 0 38%; display: flex; flex-direction: column; min-height: 0;
+        border-top: 1px solid #c9d1da; background: #f3f5f8; }
+      .tabs { display: flex; gap: 2px; padding: 6px 8px 0; flex: 0 0 auto; }
+      .tab { flex: 1; padding: 5px; background: transparent; border: none; border-bottom: 2px solid transparent;
+        color: #5b6673; cursor: pointer; font: inherit; font-weight: 600; }
+      .tab.active { color: #11161c; border-bottom-color: #b35c00; }
+      .filter { margin: 8px; padding: 6px 8px; background: #fff; border: 1px solid #c9d1da; border-radius: 6px;
+        color: #11161c; flex: 0 0 auto; font: inherit; }
+      .list { flex: 1 1 auto; overflow: auto; padding: 4px 6px; min-height: 0; }
+      .row { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; }
+      .row:hover { background: rgba(179, 92, 0, 0.10); }
+      .row.sel { outline: 2px solid #b35c00; }
+      .row.mapped { background: rgba(26, 143, 60, 0.13); }
+      .row.mapped.sel { outline-color: #1a8f3c; }
+      .row .name { font-variant-numeric: tabular-nums; font-weight: 600; }
+      .row .name.pow { color: #0a55c8; }
+      .row .val { color: #5b6673; font-size: 12px; margin-left: 10px; margin-right: auto; }
+      .row .meta { color: #5b6673; font-size: 12px; }
+      .row .meta.ok { color: #1a8f3c; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <strong>LTspice ↔ KiCad — read-only</strong>
+      <span id="meta" class="meta"></span>
+    </div>
+    <div class="panes">
+      <section class="pane">
+        <div class="ph"><span>LTspice</span><small id="lt-name"></small></div>
+        <ltspice-schematic id="lt" interactive></ltspice-schematic>
+      </section>
+      <section class="pane">
+        <div class="ph">
+          <span>KiCad</span>
+          <span class="seg"><button id="b-sch" class="active">Schematic</button><button id="b-pcb">PCB</button></span>
+          <button id="b-mirror" class="hdr-btn hidden">Mirror</button>
+          <button id="b-rot" class="hdr-btn hidden">⟳ 0°</button>
+          <small id="ki-name"></small>
+        </div>
+        <kicad-schematic id="ksch" interactive></kicad-schematic>
+        <kicad-pcb id="kpcb" class="hidden" interactive></kicad-pcb>
+      </section>
+    </div>
+    <script id="lk-data" type="application/json">__LK_DATA__</script>
+    <script type="module" src="./viewer.ts"></script>
+  </body>
+</html>

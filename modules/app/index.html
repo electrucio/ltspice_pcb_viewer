@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LTspice ↔ KiCad — mapper &amp; cross-probe</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body { display: flex; flex-direction: column; height: 100vh;
+        font-family: ui-sans-serif, system-ui, sans-serif; font-size: 13px; color: #11161c; background: #fff; }
+      .appbar { flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+        padding: 8px 12px; background: #11161c; color: #e6e8ea; }
+      .appbar strong { font-size: 14px; }
+      .appbar .hint { color: #8b949e; margin-left: auto; }
+      .appbar button { padding: 7px 13px; background: #1a8f3c; color: #fff; border: none;
+        border-radius: 6px; cursor: pointer; font: inherit; font-weight: 700; }
+      .appbar button:hover { filter: brightness(1.08); }
+      .appbar .msg { color: #39d353; min-width: 120px; }
+      ltspice-kicad-mapper { flex: 1 1 auto; min-height: 0; }
+    </style>
+  </head>
+  <body>
+    <div class="appbar">
+      <strong>LTspice ↔ KiCad</strong>
+      <span class="hint">Load files &amp; map below, then export a portable viewer →</span>
+      <button id="download">⬇ Download read-only HTML</button>
+      <span id="msg" class="msg"></span>
+    </div>
+    <ltspice-kicad-mapper id="m" theme="light"></ltspice-kicad-mapper>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

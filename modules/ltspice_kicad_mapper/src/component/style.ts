@@ -31,6 +31,17 @@ export const STYLESHEET = `
 .pane-title { font-weight: 700; }
 .fname { color: var(--muted); font-size: 12px; }
 .viewer { flex: 1 1 60%; min-height: 0; display: block; }
+.viewer.hidden { display: none; }
+
+/* KiCad schematic/PCB segmented toggle */
+.viewseg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.viewseg button { padding: 3px 10px; background: var(--bg); color: var(--muted); border: none;
+  border-left: 1px solid var(--line); cursor: pointer; font: inherit; font-weight: 600; }
+.viewseg button:first-child { border-left: none; }
+.viewseg button.active { background: var(--primary); color: #fff; }
+.hdrbtn { padding: 3px 10px; background: var(--bg); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600; }
+.hdrbtn:hover { border-color: var(--accent); }
 
 .lists { flex: 0 0 40%; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--line); background: var(--panel); }
 .tabs { display: flex; gap: 2px; padding: 6px 8px 0; flex: 0 0 auto; }
@@ -46,6 +57,7 @@ export const STYLESHEET = `
 .row.mapped.sel { outline: 2px solid var(--ok); }
 .row .name { font-variant-numeric: tabular-nums; font-weight: 600; }
 .row .name.pow { color: var(--pow); }
+.row .val { color: var(--muted); font-size: 12px; margin-left: 10px; margin-right: auto; }
 .row .meta { color: var(--muted); font-size: 12px; }
 .row .meta.ok { color: var(--ok); font-weight: 700; }
 `;

@@ -26,8 +26,9 @@ with layer toggles, net/component highlighting, mirror, and pan/zoom. Part of th
 
 - Attributes: `src`.
 - Methods: `loadFromUrl`, `loadFromString`, `getLayers()`, `setLayer(layer, visible)`,
-  `setMirror(on)`, `toggleMirror()`, `fit()`, `highlightNet(name)`,
-  `highlightComponent(ref)`, `clearHighlights()`, `getNets()`, `getComponents()`.
+  `setMirror(on)`, `toggleMirror()`, `setRotation(deg)`, `getRotation()`, `rotate90()`,
+  `fit()`, `highlightNet(name)`, `highlightComponent(ref)`, `clearHighlights()`,
+  `getNets()`, `getComponents()`.
 - Events: `ready`, `netselect`, `componentselect`, `nethover`.
 
 Layer ids (toggleable): `B.Cu`, `F.Cu`, `pads`, `vias`, `B.SilkS`, `F.SilkS`,

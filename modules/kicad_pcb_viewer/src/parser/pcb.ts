@@ -31,7 +31,10 @@ export type FpGraphic =
   | { kind: "rect"; layer: string; a: Point; b: Point; width: number; fill: boolean };
 
 export interface Footprint {
-  ref: string;
+  ref: string; // reference designator as drawn on the board (e.g. "Q3" or "Q3*")
+  /** schematic symbol UUID (last segment of the footprint `path`), "" if unlinked —
+   *  the stable identity that survives reference-designator renames */
+  symbolUuid: string;
   value: string;
   pos: Point;
   angle: number;
@@ -188,6 +191,10 @@ function readFootprint(node: SNode, sign: number): Footprint {
   const valProp = props.find((p) => String(p.values[0]) === "Value");
   const ref = refProp ? String(refProp.values[1] ?? "") : "";
   const refAt = at(child(refProp ?? node, "at"));
+  // (path "/<sheet-uuid…>/<symbol-uuid>") — the last segment is the schematic symbol's
+  // UUID, the stable cross-tool identity (survives reference renames).
+  const path = childStr(node, "path") ?? "";
+  const symbolUuid = path.split("/").filter(Boolean).pop() ?? "";
 
   const pads = children(node, "pad").map((p) => readPad(p, fpos, a.angle, ref, sign));
   const graphics: FpGraphic[] = [];
@@ -197,6 +204,7 @@ function readFootprint(node: SNode, sign: number): Footprint {
   }
   return {
     ref,
+    symbolUuid,
     value: valProp ? String(valProp.values[1] ?? "") : "",
     pos: fpos,
     angle: a.angle,

@@ -16,17 +16,19 @@
 
 import "../../../ltspice_schematic_viewer/src/index.js";
 import "../../../kicad_schematic_viewer/src/index.js";
+import "../../../kicad_pcb_viewer/src/index.js";
 
 import { MappingStore, serialize, type AvailableIds } from "../mapping/store.js";
 import type { Kind, Side, MappingFile } from "../mapping/format.js";
 import { Pairing } from "../interaction/pairing.js";
 import { mutualComponentMatch, mutualNetMatch, chooseNextComponentPair, chooseNextNetPair, type SuggestInput } from "../suggest/chain.js";
+import { reconcileKicadNets, reconcileKicadComponents, type KicadNetAlias, type KicadRefAlias } from "../mapping/kicad-nets.js";
 import { STYLESHEET } from "./style.js";
 
-interface CompInfo { ref: string; value: string; nets: string[]; pos: { x: number; y: number } }
+interface CompInfo { ref: string; value: string; nets: string[]; pos: { x: number; y: number }; uuid?: string }
 interface NetInfoLite { name: string; isPower: boolean; pins: { ref: string }[] }
 
-/** Structural view of either viewer element (common subset the mapper uses). */
+/** Structural view of either schematic viewer element (common subset the mapper uses). */
 interface ViewerElement extends HTMLElement {
   getNets(): NetInfoLite[];
   getComponents(): CompInfo[];
@@ -40,6 +42,33 @@ interface ViewerElement extends HTMLElement {
   zoomToComponents(refs: string[]): void;
   loadFromUrl(url: string): Promise<void>;
   loadFromString(text: string | ArrayBuffer | Uint8Array): void;
+}
+
+/** The KiCad PCB viewer element (a narrower surface than the schematic viewers). */
+interface PcbViewerElement extends HTMLElement {
+  getNets(): string[];
+  getComponents(): { ref: string; value: string; nets: string[]; symbolUuid: string }[];
+  highlightNet(name: string): void;
+  highlightComponent(ref: string): void;
+  clearHighlights(): void;
+  fit(): void;
+  rotate90(): number;
+  getRotation(): number;
+  loadFromString(text: string): void;
+}
+
+/** Raw sources of what is currently loaded, for baking into a static export. */
+export interface MapperSources {
+  /** base64 of the original `.asc` bytes (UTF-16; decoded by the viewer) */
+  ltspice: string;
+  /** `.kicad_sch` text */
+  kicadSch: string;
+  /** `.kicad_pcb` text (empty if none loaded) */
+  kicadPcb: string;
+  /** registered LTspice `.asy` symbols: name -> text */
+  symbols: Record<string, string>;
+  ltspiceSource: string;
+  kicadSource: string;
 }
 
 const COLORS = { pending: "#ff8c00", mapped: "#1a8f3c", suggestion: "#1f6feb" };
@@ -67,6 +96,23 @@ export class LtspiceKicadMapperElement extends HTMLElement {
   private countsEl!: HTMLElement;
   private autoSide: Side | null = null; // side whose selection was auto-filled from a suggestion
   private onKey = (e: KeyboardEvent) => this.handleKey(e);
+
+  // KiCad side carries a second (PCB) view of the same project; highlights fan out to
+  // both, translated through a schematic↔PCB net alias (refs are identical).
+  private kicadPcb!: PcbViewerElement;
+  private kicadView: "schematic" | "pcb" = "schematic";
+  private kicadAlias: KicadNetAlias = { schToPcb: new Map(), pcbToSch: new Map() };
+  // schematic-ref ↔ PCB-ref, matched by the stable schematic symbol UUID (so it survives
+  // reference-designator differences between the schematic and the board, e.g. Q3 vs Q3*)
+  private kicadCompAlias: KicadRefAlias = { schToPcb: new Map(), pcbToSch: new Map() };
+  private pcbReady = false;
+  private pcbFitted = false;
+  private viewSegEl!: HTMLElement;
+  private rotBtnEl: HTMLButtonElement | null = null;
+
+  // raw sources retained for static export
+  private raw = { ltspice: "", kicadSch: "", kicadPcb: "" };
+  private symbols: Record<string, string> = {};
 
   constructor() {
     super();
@@ -96,10 +142,70 @@ export class LtspiceKicadMapperElement extends HTMLElement {
   // ---- public API --------------------------------------------------------
 
   registerLtspiceSymbol(name: string, asyText: string): void {
+    this.symbols[name] = asyText;
     (this.sides.ltspice.viewer as unknown as { registerSymbol(n: string, a: string): void }).registerSymbol(name, asyText);
   }
-  loadLtspiceUrl(url: string): Promise<void> { this.sides.ltspice.source = basename(url); return this.sides.ltspice.viewer.loadFromUrl(url); }
-  loadKicadUrl(url: string): Promise<void> { this.sides.kicad.source = basename(url); return this.sides.kicad.viewer.loadFromUrl(url); }
+
+  // --- LTspice (raw kept as base64 bytes; the viewer auto-decodes UTF-16) ---
+  loadLtspiceBytes(buf: ArrayBuffer, name = "schematic.asc"): void {
+    this.raw.ltspice = bytesToBase64(buf);
+    this.sides.ltspice.source = name;
+    this.sides.ltspice.viewer.loadFromString(buf);
+  }
+  async loadLtspiceUrl(url: string): Promise<void> {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+    this.loadLtspiceBytes(await res.arrayBuffer(), basename(url));
+  }
+
+  // --- KiCad schematic (text) ---
+  loadKicadString(text: string, name = "schematic.kicad_sch"): void {
+    this.raw.kicadSch = text;
+    this.sides.kicad.source = name;
+    this.sides.kicad.viewer.loadFromString(text);
+  }
+  async loadKicadUrl(url: string): Promise<void> {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+    this.loadKicadString(await res.text(), basename(url));
+  }
+
+  // --- KiCad PCB (text) — shares the KiCad net/ref namespace with the schematic ---
+  loadKicadPcbString(text: string, _name = "board.kicad_pcb"): void {
+    this.raw.kicadPcb = text;
+    this.kicadPcb.loadFromString(text);
+  }
+  async loadKicadPcbUrl(url: string): Promise<void> {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+    this.loadKicadPcbString(await res.text(), basename(url));
+  }
+
+  /** Switch which KiCad view is visible (highlights are kept on both). */
+  setKicadView(view: "schematic" | "pcb"): void {
+    this.kicadView = view;
+    this.sides.kicad.viewer.classList.toggle("hidden", view !== "schematic");
+    (this.kicadPcb as HTMLElement).classList.toggle("hidden", view !== "pcb");
+    if (this.viewSegEl) {
+      const btns = this.viewSegEl.querySelectorAll("button");
+      btns[0]!.classList.toggle("active", view === "schematic");
+      btns[1]!.classList.toggle("active", view === "pcb");
+    }
+    if (this.rotBtnEl) this.rotBtnEl.style.display = view === "pcb" ? "" : "none";
+    if (view === "pcb" && this.pcbReady && !this.pcbFitted) { this.kicadPcb.fit(); this.pcbFitted = true; }
+  }
+
+  /** Raw sources of everything currently loaded, for baking into a static export. */
+  getSources(): MapperSources {
+    return {
+      ltspice: this.raw.ltspice,
+      kicadSch: this.raw.kicadSch,
+      kicadPcb: this.raw.kicadPcb,
+      symbols: { ...this.symbols },
+      ltspiceSource: this.sides.ltspice.source,
+      kicadSource: this.sides.kicad.source,
+    };
+  }
 
   loadMapping(file: string | object): { loaded: number; dropped: number } {
     const res = this.store.fromFile(file as string, this.available());
@@ -133,6 +239,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       h("span", "title", "LTspice ↔ KiCad mapper"),
       this.fileButton("Load .asc", ".asc", (f) => this.loadFile("ltspice", f)),
       this.fileButton("Load .kicad_sch", ".kicad_sch", (f) => this.loadFile("kicad", f)),
+      this.fileButton("Load .kicad_pcb", ".kicad_pcb", (f) => this.loadFile("pcb", f)),
       this.fileButton("Import mapping", ".json", (f) => void f.text().then((t) => this.loadMapping(t))),
       this.button("Export mapping", () => this.exportDownload()),
       this.button("Map (M)", () => this.tryMap(), "primary"),
@@ -152,6 +259,8 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     panes.append(this.sides.ltspice.viewer.closest(".pane")!, this.sides.kicad.viewer.closest(".pane")!);
     wrap.appendChild(panes);
     shadow.appendChild(wrap);
+
+    this.setupKicadPcb();
 
     this.applyTheme(this.getAttribute("theme") ?? "light");
     this.updateCounts();
@@ -194,6 +303,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       st.nets = viewer.getNets();
       st.comps = viewer.getComponents();
       fname.textContent = st.source || `${st.nets.length} nets · ${st.comps.length} parts`;
+      if (side === "kicad") this.buildKicadAlias();
       this.refresh();
       this.updateCounts();
     });
@@ -208,6 +318,74 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       else this.clearSelection();
     });
     return st;
+  }
+
+  /** Add the KiCad PCB viewer + a Schematic/PCB toggle to the KiCad pane. */
+  private setupKicadPcb(): void {
+    const schViewer = this.sides.kicad.viewer;
+    const header = schViewer.closest(".pane")!.querySelector("header")!;
+
+    const seg = h("div", "viewseg");
+    const schBtn = this.button("Schematic", () => this.setKicadView("schematic"));
+    const pcbBtn = this.button("PCB", () => this.setKicadView("pcb"));
+    schBtn.classList.add("active");
+    seg.append(schBtn, pcbBtn);
+    this.viewSegEl = seg;
+    header.insertBefore(seg, this.sides.kicad.fnameEl);
+
+    // Rotate button (PCB only) — cycles 0/90/180/270
+    const rotBtn = this.button("⟳ 0°", () => { const r = this.kicadPcb.rotate90(); rotBtn.textContent = `⟳ ${r}°`; });
+    rotBtn.classList.add("hdrbtn");
+    rotBtn.style.display = "none";
+    this.rotBtnEl = rotBtn;
+    header.insertBefore(rotBtn, this.sides.kicad.fnameEl);
+
+    const pcb = document.createElement("kicad-pcb") as PcbViewerElement;
+    pcb.classList.add("viewer", "hidden");
+    schViewer.after(pcb);
+    this.kicadPcb = pcb;
+
+    pcb.addEventListener("ready", () => {
+      this.pcbReady = true;
+      this.pcbFitted = false;
+      this.buildKicadAlias();
+      if (this.kicadView === "pcb") { pcb.fit(); this.pcbFitted = true; }
+      this.refresh();
+    });
+    pcb.addEventListener("netselect", (e) => {
+      const d = (e as CustomEvent).detail as { name: string } | null;
+      if (d) this.handleSelect("kicad", "net", this.kicadAlias.pcbToSch.get(d.name) ?? d.name);
+      else this.clearSelection();
+    });
+    pcb.addEventListener("componentselect", (e) => {
+      const d = (e as CustomEvent).detail as { ref: string } | null;
+      if (d) this.handleSelect("kicad", "component", this.kicadCompAlias.pcbToSch.get(d.ref) ?? d.ref);
+      else this.clearSelection();
+    });
+  }
+
+  /** (Re)build the schematic↔PCB component + net aliases once both KiCad views have data. */
+  private buildKicadAlias(): void {
+    if (!this.pcbReady || !this.sides.kicad.nets.length) return;
+    const pcbComps = this.kicadPcb.getComponents();
+
+    // (1) component alias by stable schematic symbol UUID (robust to ref renames)
+    this.kicadCompAlias = reconcileKicadComponents(this.sides.kicad.comps, pcbComps);
+
+    // (2) net alias — PCB net ref-sets translated into schematic-ref space (via the UUID
+    //     component alias) so structural matching compares like-for-like regardless of
+    //     reference-designator differences.
+    const schNets = this.sides.kicad.nets.map((n) => ({ name: n.name, refs: netComponentRefs(n) }));
+    const pcbNetRefs = new Map<string, string[]>();
+    for (const c of pcbComps) {
+      if (c.ref.startsWith("#")) continue;
+      const ref = this.kicadCompAlias.pcbToSch.get(c.ref) ?? c.ref;
+      for (const net of c.nets) {
+        const arr = pcbNetRefs.get(net) ?? pcbNetRefs.set(net, []).get(net)!;
+        arr.push(ref);
+      }
+    }
+    this.kicadAlias = reconcileKicadNets(schNets, this.kicadPcb.getNets(), pcbNetRefs);
   }
 
   // ---- selection / mapping ----------------------------------------------
@@ -411,6 +589,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       this.sides[side].viewer.clearHighlights();
       this.sides[side].viewer.clearMarks();
     }
+    if (this.kicadPcb) this.kicadPcb.clearHighlights();
     const active = !!(this.pairing.ltspice || this.pairing.kicad);
     if (!active) {
       this.applyMarks();
@@ -437,6 +616,14 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     v.style.setProperty("--ksv-select", color);
     if (kind === "net") v.highlightNet(id);
     else v.highlightComponent(id);
+    // fan KiCad highlights out to the PCB view too (net names translated via the alias)
+    if (side === "kicad" && this.kicadPcb) {
+      const pv = this.kicadPcb as HTMLElement;
+      pv.style.setProperty("--ksv-highlight", color);
+      pv.style.setProperty("--ksv-select", color);
+      if (kind === "net") this.kicadPcb.highlightNet(this.kicadAlias.schToPcb.get(id) ?? id);
+      else this.kicadPcb.highlightComponent(this.kicadCompAlias.schToPcb.get(id) ?? id);
+    }
   }
 
   private selectStatus(): string {
@@ -476,19 +663,22 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     st.listEl.replaceChildren();
 
     const rows = kind === "net"
-      ? st.nets.map((n) => ({ id: n.name, meta: n.isPower ? "power" : "", power: n.isPower }))
-      : st.comps.map((c) => ({ id: c.ref, meta: c.value, power: false }));
+      ? st.nets.map((n) => ({ id: n.name, value: "", power: n.isPower }))
+      : st.comps.map((c) => ({ id: c.ref, value: c.value, power: false }));
 
-    for (const r of rows.filter((r) => r.id.toLowerCase().includes(term) || r.meta.toLowerCase().includes(term))
+    for (const r of rows.filter((r) => r.id.toLowerCase().includes(term) || r.value.toLowerCase().includes(term))
       .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))) {
       const mappedTo = this.store.counterpart(kind, side, r.id);
       const row = h("div", "row");
       if (mappedTo) row.classList.add("mapped");
       if (sel && sel.kind === kind && sel.id === r.id) row.classList.add("sel");
       const name = h("span", "name" + (r.power ? " pow" : ""), r.id);
-      const meta = h("span", "meta", mappedTo ? `→ ${mappedTo}` : r.meta);
+      row.append(name);
+      // components keep their value visible in its own column (even when mapped)
+      if (kind === "component") row.append(h("span", "val", r.value));
+      const meta = h("span", "meta", mappedTo ? `→ ${mappedTo}` : (r.power ? "power" : ""));
       if (mappedTo) meta.classList.add("ok");
-      row.append(name, meta);
+      row.append(meta);
       row.onclick = () => this.handleSelect(side, kind, r.id);
       st.listEl.appendChild(row);
     }
@@ -515,11 +705,10 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     this.dispatchEvent(new CustomEvent("mappingchange", { detail: this.store.counts(), bubbles: true, composed: true }));
   }
 
-  private async loadFile(side: Side, file: File): Promise<void> {
-    const st = this.sides[side];
-    st.source = file.name;
-    if (side === "ltspice") st.viewer.loadFromString(await file.arrayBuffer());
-    else st.viewer.loadFromString(await file.text());
+  private async loadFile(side: Side | "pcb", file: File): Promise<void> {
+    if (side === "ltspice") this.loadLtspiceBytes(await file.arrayBuffer(), file.name);
+    else if (side === "kicad") this.loadKicadString(await file.text(), file.name);
+    else { this.loadKicadPcbString(await file.text(), file.name); this.setKicadView("pcb"); }
   }
 
   private exportDownload(): void {
@@ -555,6 +744,17 @@ export class LtspiceKicadMapperElement extends HTMLElement {
 
 function basename(url: string): string {
   return url.split(/[\\/]/).pop() ?? url;
+}
+
+/** Base64-encode raw bytes (chunked to avoid call-stack limits on large buffers). */
+function bytesToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
 }
 
 /** Unique real-component refs on a net (excludes power-symbol pins like #GND01). */

@@ -1,6 +1,8 @@
 node_modules/
 dist/
 dist-demo/
+dist-app/
+modules/app/src/generated/
 *.log
 .DS_Store
 .vite/

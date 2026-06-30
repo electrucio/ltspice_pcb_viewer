@@ -4,9 +4,9 @@
  *   <kicad-pcb src="board.kicad_pcb"></kicad-pcb>
  *
  * Single combined view of all layers. API: loadFromUrl/loadFromString, getLayers,
- * setLayer(layer, visible), setMirror/toggleMirror, highlightNet, highlightComponent,
- * clearHighlights, fit, getNets, getComponents. Events: ready, netselect,
- * componentselect, nethover.
+ * setLayer(layer, visible), setMirror/toggleMirror, setRotation/getRotation/rotate90,
+ * highlightNet, highlightComponent, clearHighlights, fit, getNets, getComponents.
+ * Events: ready, netselect, componentselect, nethover.
  */
 
 import { parsePcb, type Pcb } from "../parser/pcb.js";
@@ -18,6 +18,8 @@ export interface PcbComponentInfo {
   ref: string;
   value: string;
   nets: string[];
+  /** schematic symbol UUID (stable cross-tool identity), "" if the footprint is unlinked */
+  symbolUuid: string;
 }
 
 export class KicadPcbElement extends HTMLElement {
@@ -93,6 +95,10 @@ export class KicadPcbElement extends HTMLElement {
   }
   setMirror(on: boolean): void { this.controller?.setMirror(on); }
   toggleMirror(): void { this.controller?.setMirror(!this.controller.isMirrored()); }
+  setRotation(deg: number): void { this.controller?.setRotation(deg); }
+  getRotation(): number { return this.controller?.getRotation() ?? 0; }
+  /** Rotate by +90° (clockwise) and return the new absolute rotation. */
+  rotate90(): number { const r = (this.getRotation() + 90) % 360; this.setRotation(r); return r; }
   fit(): void { this.controller?.fit(); }
   highlightNet(name: string): void { this.controller?.highlightNet(name); }
   highlightComponent(ref: string): void { this.controller?.highlightComponent(ref); }
@@ -105,7 +111,7 @@ export class KicadPcbElement extends HTMLElement {
     if (!this.pcb) return [];
     return this.pcb.footprints
       .filter((f) => f.ref && !f.ref.startsWith("#"))
-      .map((f) => ({ ref: f.ref, value: f.value, nets: [...new Set(f.pads.map((p) => p.net).filter(Boolean))] }));
+      .map((f) => ({ ref: f.ref, value: f.value, symbolUuid: f.symbolUuid, nets: [...new Set(f.pads.map((p) => p.net).filter(Boolean))] }));
   }
 
   private componentInfo(ref: string): PcbComponentInfo | null {

@@ -35,12 +35,31 @@ LTspice orientation (`R0/R90/…`, `Mn` mirror) in `geometry/transform.ts`; net 
 FLAGs name nets; `0` = ground). 6 vitest tests; cross-validates with the KiCad engine.
 
 ### `modules/ltspice_kicad_mapper` — `<ltspice-kicad-mapper>`  (the integration)
-Embeds **both** viewers side by side (imported by relative path from `../../<viewer>/src`)
+Embeds the viewers side by side (imported by relative path from `../../<viewer>/src`)
 and builds a **1:1 net/component mapping** between them. Recolors the viewers' highlights
 via their `--ksv-highlight`/`--ksv-select` CSS variables — the viewers needed almost no
 changes for this. Key files: `mapping/store.ts` (two 1:1 bimaps + JSON import/export),
 `mapping/format.ts`, `interaction/pairing.ts` (deliberate selection state machine),
 `suggest/chain.ts` (the suggestion engine), `component/mapper.ts` (the element).
+
+The KiCad pane carries **both** a `<kicad-schematic>` and a `<kicad-pcb>` (a
+`[Schematic | PCB]` toggle picks which is visible; both stay mounted so highlights
+survive toggling). KiCad highlights **fan out to both** views, translated through two
+aliases in `mapping/kicad-nets.ts`:
+- **Components** (`reconcileKicadComponents`) match by the **stable schematic symbol
+  UUID** — the footprint's `(path …)` ends in the schematic symbol's `(uuid …)`, which
+  survives reference-designator renames (e.g. schematic `Q3` ↔ board `Q3*`). The
+  `<kicad-schematic>` exposes `ComponentInfo.uuid`; `<kicad-pcb>` exposes
+  `PcbComponentInfo.symbolUuid`.
+- **Nets** (`reconcileKicadNets`) — net names differ (PCB prefixes labeled/power nets
+  with a sheet path, e.g. `POW` ↔ `/POW`; auto-names like `Net-(C6-Pad1)` vs
+  `Net-(Q3-C)` don't match at all). Matched exact → path-normalized → structurally by
+  equal connected-**ref-set**, where PCB ref-sets are first translated into
+  schematic-ref space via the UUID component alias so they compare like-for-like.
+
+The mapper exposes `loadKicadPcb*`, `setKicadView`, and `getSources()` (raw text of all
+loaded designs + registered symbols) for the app's static export. The read-only export
+viewer rebuilds the same two aliases from the embedded designs.
 
 ### `modules/kicad_pcb_viewer` — `<kicad-pcb>`
 Renders a KiCad `.kicad_pcb` (S-expression; reuses `parser/sexpr.ts`) as a **single
@@ -53,6 +72,24 @@ F.Cu, pads, vias, F/B.SilkS, Edge.Cuts, refs), tagging `data-net`/`data-ref`.
 `interaction/controller.ts` = pan/zoom + horizontal **mirror** (transform on a content
 group) + per-layer visibility + net/component highlight (`--ksv-highlight`). 3 parser
 tests. Data source is the original `poweramp.kicad_pcb` (not the ibom export).
+
+### `modules/app` — the integrated application
+Full-screen shell (`index.html` + `src/main.ts`) embedding `<ltspice-kicad-mapper>`:
+LTspice left, switchable KiCad schematic/PCB right, map + synchronized cross-probe,
+upload any `.asc`/`.kicad_sch`/`.kicad_pcb`. The app runs in **modern browsers only**.
+
+Its headline feature is **Download read-only HTML**: a separate, pre-compiled
+**read-only viewer** (`viewer/viewer.ts` + `cross-probe.ts` + `lists.ts` read-only
+nets/components sidebars + `compat.ts`) is built by
+`vite.viewer.config.ts` into one self-contained, **iOS-Safari-12-targeted** HTML
+*template* (`src/generated/viewer.html`, git-ignored) with a `__LK_DATA__` placeholder
+inside a `<script type="application/json">` block. On Download, `main.ts` replaces that
+placeholder with a JSON payload (`getSources()` + `exportMapping()`; `<` escaped to
+`<` so a stray `</script>` can't break out) and saves a Blob — ibom-style, no
+`fetch`. Old-Safari strategy: esbuild `build.target:"safari12"` downlevels syntax
+(`?.`,`??`); `compat.ts` shims the method-level gaps (`replaceChildren`, `flatMap`);
+SVG rendering + native Web Components mean no canvas/Path2D or web-components polyfill.
+The payload reserves a `simulation` field for future LTspice sim results.
 
 ## Shared conventions (across both viewers)
 

@@ -12,6 +12,9 @@ import { defineLtspiceKicadMapper } from "./component/mapper.js";
 if (typeof customElements !== "undefined") defineLtspiceKicadMapper();
 
 export { LtspiceKicadMapperElement, defineLtspiceKicadMapper } from "./component/mapper.js";
+export type { MapperSources } from "./component/mapper.js";
+export { reconcileKicadNets, reconcileKicadComponents, normalizeNetName } from "./mapping/kicad-nets.js";
+export type { KicadNetAlias, KicadRefAlias, SchNet } from "./mapping/kicad-nets.js";
 export { MappingStore, serialize } from "./mapping/store.js";
 export type { AvailableIds, MappingCounts } from "./mapping/store.js";
 export { deserialize } from "./mapping/format.js";

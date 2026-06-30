@@ -29,6 +29,7 @@ export class PcbController {
   private last = { x: 0, y: 0 };
   private downHit: { net?: string; ref?: string } = {};
   private mirrored = false;
+  private rotation = 0; // 0 | 90 | 180 | 270 (degrees, clockwise)
 
   constructor(
     private readonly root: HTMLElement,
@@ -48,21 +49,45 @@ export class PcbController {
     this.svg.setAttribute("viewBox", `${this.vb.x} ${this.vb.y} ${this.vb.w} ${this.vb.h}`);
   }
 
+  private center(): { cx: number; cy: number } {
+    return { cx: (this.bbox.minX + this.bbox.maxX) / 2, cy: (this.bbox.minY + this.bbox.maxY) / 2 };
+  }
+
+  /** Rebuild the content transform from the current rotation + mirror (about the center). */
+  private applyTransform(): void {
+    const { cx, cy } = this.center();
+    const parts: string[] = [];
+    if (this.rotation) parts.push(`rotate(${this.rotation} ${cx} ${cy})`);
+    if (this.mirrored) parts.push(`translate(${2 * cx} 0) scale(-1 1)`);
+    this.content.setAttribute("transform", parts.join(" "));
+  }
+
   fit(): void {
-    const b = this.bbox;
-    const w = Math.max(b.maxX - b.minX, 1), h = Math.max(b.maxY - b.minY, 1);
+    let w = Math.max(this.bbox.maxX - this.bbox.minX, 1);
+    let h = Math.max(this.bbox.maxY - this.bbox.minY, 1);
+    if (this.rotation === 90 || this.rotation === 270) { const t = w; w = h; h = t; } // board reorients
+    const { cx, cy } = this.center();
     const px = w * PAD, py = h * PAD;
-    this.vb = { x: b.minX - px, y: b.minY - py, w: w + 2 * px, h: h + 2 * py };
+    this.vb = { x: cx - w / 2 - px, y: cy - h / 2 - py, w: w + 2 * px, h: h + 2 * py };
     this.applyViewBox();
   }
 
   setMirror(on: boolean): void {
     this.mirrored = on;
-    const cx = (this.bbox.minX + this.bbox.maxX) / 2;
-    this.content.setAttribute("transform", on ? `translate(${2 * cx} 0) scale(-1 1)` : "");
+    this.applyTransform();
   }
   isMirrored(): boolean {
     return this.mirrored;
+  }
+
+  /** Set absolute rotation (snapped to 0/90/180/270) and reframe. */
+  setRotation(deg: number): void {
+    this.rotation = (((Math.round(deg / 90) * 90) % 360) + 360) % 360;
+    this.applyTransform();
+    this.fit();
+  }
+  getRotation(): number {
+    return this.rotation;
   }
 
   setLayerVisible(layer: string, visible: boolean): void {

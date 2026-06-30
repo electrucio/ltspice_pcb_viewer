@@ -27,6 +27,8 @@ export interface ComponentInfo {
   libId: string;
   nets: string[];
   pos: { x: number; y: number };
+  /** symbol instance UUID — stable identity for cross-tool linking (e.g. to a PCB footprint) */
+  uuid: string;
 }
 
 export class KicadSchematicElement extends HTMLElement {
@@ -145,6 +147,7 @@ export class KicadSchematicElement extends HTMLElement {
         libId: i.libId,
         nets: [...(nl.componentToNets.get(i.ref) ?? [])].map((id) => nl.nets[id]!.name),
         pos: { x: i.placement.x, y: i.placement.y },
+        uuid: i.uuid,
       }));
   }
 
