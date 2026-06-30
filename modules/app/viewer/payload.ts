@@ -1,4 +1,5 @@
 import type { MappingFile } from "../../ltspice_kicad_mapper/src/mapping/format.js";
+import type { SimSummary } from "../../ltspice_kicad_mapper/src/sim/summary.js";
 
 /**
  * Self-contained data baked into a downloaded read-only export. Written by the app
@@ -19,6 +20,6 @@ export interface ExportPayload {
   mapping: MappingFile;
   ltspiceSource: string;
   kicadSource: string;
-  /** reserved for future LTspice simulation results linked to nets/components */
-  simulation: null;
+  /** LTspice simulation summary (per-net/per-component metrics), or null if none loaded */
+  simulation: SimSummary | null;
 }

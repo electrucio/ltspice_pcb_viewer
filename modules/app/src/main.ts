@@ -8,13 +8,20 @@
  */
 
 import "../../ltspice_kicad_mapper/src/index.js"; // registers <ltspice-kicad-mapper> + all viewers
-import type { LtspiceKicadMapperElement } from "../../ltspice_kicad_mapper/src/index.js";
+import type { LtspiceKicadMapperElement, SimSummary } from "../../ltspice_kicad_mapper/src/index.js";
 import viewerTemplate from "./generated/viewer.html?raw";
 import type { ExportPayload } from "../viewer/payload.js";
+import { buildSimSummary } from "./sim/build.js";
+import { decodeNetlist, parseNetlistRefs, buildNetNodeAlias } from "./sim/netlist.js";
 
 const mapper = document.getElementById("m") as LtspiceKicadMapperElement;
 const msgEl = document.getElementById("msg")!;
 const setMsg = (s: string): void => { msgEl.textContent = s; };
+
+let simulation: SimSummary | null = null;
+let rawFile: File | null = null;
+let opFile: File | null = null;
+let netFile: File | null = null;
 
 async function boot(): Promise<void> {
   // register the project's custom potentiometer symbols on the LTspice side first
@@ -45,7 +52,7 @@ function downloadReadOnly(): void {
     mapping: mapper.exportMapping(),
     ltspiceSource: src.ltspiceSource,
     kicadSource: src.kicadSource,
-    simulation: null,
+    simulation,
   };
   // escape `<` so a stray "</script>" in the data can't close the inline <script> block;
   // `<` is still valid JSON. Use a replacer function so `$` in the data isn't
@@ -64,5 +71,57 @@ function downloadReadOnly(): void {
 }
 
 document.getElementById("download")!.addEventListener("click", downloadReadOnly);
+
+// ---- simulation (.raw) upload + processing -----------------------------
+
+async function processSim(): Promise<void> {
+  if (!rawFile) return;
+  const comps = mapper.getLtspiceComponents();
+  let netAlias: Map<string, string> | undefined;
+  if (netFile) {
+    try {
+      netAlias = buildNetNodeAlias(parseNetlistRefs(decodeNetlist(await netFile.arrayBuffer())), comps);
+    } catch { /* fall back to name-based lookup */ }
+  }
+  const ctx = {
+    nets: mapper.getLtspiceNets(),
+    comps,
+    directives: mapper.getLtspiceDirectives(),
+    netAlias,
+  };
+  setMsg(`processing ${rawFile.name}…`);
+  try {
+    simulation = await buildSimSummary(rawFile, opFile, ctx, rawFile.name, {
+      onProgress: (f) => setMsg(`processing ${rawFile!.name}… ${Math.round(f * 100)}%`),
+    });
+    mapper.setSimulation(simulation);
+    const nN = Object.keys(simulation.nets).length, nC = Object.keys(simulation.comps).length;
+    const aliased = netAlias?.size ? ` · ${netAlias.size} via netlist` : "";
+    setMsg(`sim ✓ ${nN} nets · ${nC} parts${simulation.f0 ? ` · f₀ ${simulation.f0} Hz` : ""}${aliased} — hover to inspect`);
+  } catch (e) {
+    setMsg(`sim failed: ${(e as Error).message}`);
+  }
+}
+
+function pick(inputId: string, onFile: (f: File) => void): void {
+  const input = document.getElementById(inputId) as HTMLInputElement;
+  input.onchange = () => { const f = input.files?.[0]; if (f) onFile(f); input.value = ""; };
+  input.click();
+}
+document.getElementById("load-raw")!.addEventListener("click", () =>
+  pick("raw-in", (f) => { rawFile = f; void processSim(); }));
+document.getElementById("load-op")!.addEventListener("click", () =>
+  pick("op-in", (f) => { opFile = f; if (rawFile) void processSim(); else setMsg("loaded .op.raw — now load the transient .raw"); }));
+document.getElementById("load-net")!.addEventListener("click", () =>
+  pick("net-in", (f) => { netFile = f; if (rawFile) void processSim(); else setMsg("loaded netlist — now load the transient .raw"); }));
+
+// ---- SPICE directives panel --------------------------------------------
+
+const dirPanel = document.getElementById("dir-panel")!;
+document.getElementById("directives")!.addEventListener("click", () => {
+  const dirs = simulation?.directives.length ? simulation.directives : mapper.getLtspiceDirectives();
+  dirPanel.textContent = dirs.length ? dirs.join("\n") : "(no SPICE directives found in the .asc)";
+  dirPanel.classList.toggle("show");
+});
 
 void boot();

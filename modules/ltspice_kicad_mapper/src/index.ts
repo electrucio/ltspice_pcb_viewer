@@ -15,6 +15,8 @@ export { LtspiceKicadMapperElement, defineLtspiceKicadMapper } from "./component
 export type { MapperSources } from "./component/mapper.js";
 export { reconcileKicadNets, reconcileKicadComponents, normalizeNetName } from "./mapping/kicad-nets.js";
 export type { KicadNetAlias, KicadRefAlias, SchNet } from "./mapping/kicad-nets.js";
+export { createSimTooltip, formatEng } from "./sim/summary.js";
+export type { SimSummary, NetSim, CompSim, Stat, SimTooltip } from "./sim/summary.js";
 export { MappingStore, serialize } from "./mapping/store.js";
 export type { AvailableIds, MappingCounts } from "./mapping/store.js";
 export { deserialize } from "./mapping/format.js";

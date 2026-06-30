@@ -23,6 +23,7 @@ import type { Kind, Side, MappingFile } from "../mapping/format.js";
 import { Pairing } from "../interaction/pairing.js";
 import { mutualComponentMatch, mutualNetMatch, chooseNextComponentPair, chooseNextNetPair, type SuggestInput } from "../suggest/chain.js";
 import { reconcileKicadNets, reconcileKicadComponents, type KicadNetAlias, type KicadRefAlias } from "../mapping/kicad-nets.js";
+import { createSimTooltip, type SimSummary, type SimTooltip } from "../sim/summary.js";
 import { STYLESHEET } from "./style.js";
 
 interface CompInfo { ref: string; value: string; nets: string[]; pos: { x: number; y: number }; uuid?: string }
@@ -113,6 +114,11 @@ export class LtspiceKicadMapperElement extends HTMLElement {
   // raw sources retained for static export
   private raw = { ltspice: "", kicadSch: "", kicadPcb: "" };
   private symbols: Record<string, string> = {};
+
+  // simulation summary (hover-inspection); keyed on LTspice ids
+  private simulation: SimSummary | null = null;
+  private simTip: SimTooltip | null = null;
+  private hoverXY = { x: 0, y: 0 };
 
   constructor() {
     super();
@@ -207,6 +213,23 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     };
   }
 
+  // --- LTspice context + simulation (for the .raw summary feature) ---
+  getLtspiceNets(): { name: string; isPower: boolean }[] {
+    return this.sides.ltspice.nets.map((n) => ({ name: n.name, isPower: n.isPower }));
+  }
+  getLtspiceComponents(): { ref: string; value: string; nets: string[] }[] {
+    return this.sides.ltspice.comps.map((c) => ({ ref: c.ref, value: c.value, nets: c.nets }));
+  }
+  getLtspiceDirectives(): string[] {
+    return (this.sides.ltspice.viewer as unknown as { getDirectives?(): string[] }).getDirectives?.() ?? [];
+  }
+  /** Attach (or clear) the simulation summary shown on hover. */
+  setSimulation(sim: SimSummary | null): void {
+    this.simulation = sim;
+    if (!sim && this.simTip) this.simTip.hide();
+  }
+  getSimulation(): SimSummary | null { return this.simulation; }
+
   loadMapping(file: string | object): { loaded: number; dropped: number } {
     const res = this.store.fromFile(file as string, this.available());
     this.pairing.clear();
@@ -261,6 +284,13 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     shadow.appendChild(wrap);
 
     this.setupKicadPcb();
+
+    // hover tooltip for simulation summaries (follows the cursor)
+    this.simTip = createSimTooltip(shadow);
+    wrap.addEventListener("mousemove", (e) => {
+      this.hoverXY = { x: e.clientX, y: e.clientY };
+      this.simTip?.move(e.clientX, e.clientY);
+    });
 
     this.applyTheme(this.getAttribute("theme") ?? "light");
     this.updateCounts();
@@ -317,7 +347,29 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       if (d) this.handleSelect(side, "component", d.ref);
       else this.clearSelection();
     });
+    viewer.addEventListener("nethover", (e) => {
+      this.handleHover(side, "net", ((e as CustomEvent).detail as { name: string } | null)?.name ?? null);
+    });
+    viewer.addEventListener("componenthover", (e) => {
+      this.handleHover(side, "component", ((e as CustomEvent).detail as { ref: string } | null)?.ref ?? null);
+    });
     return st;
+  }
+
+  /** Show the sim summary for a hovered item (resolved to its LTspice id), or hide. */
+  private handleHover(side: Side, kind: Kind, id: string | null): void {
+    const tip = this.simTip;
+    if (!tip || !this.simulation) return;
+    const ltId = id == null ? null : side === "ltspice" ? id : this.store.counterpart(kind, "kicad", id) ?? null;
+    if (ltId == null) { tip.hide(); return; }
+    if (kind === "net") {
+      const s = this.simulation.nets[ltId];
+      if (s) { tip.showNet(ltId, s); tip.move(this.hoverXY.x, this.hoverXY.y); return; }
+    } else {
+      const s = this.simulation.comps[ltId];
+      if (s) { tip.showComp(ltId, s); tip.move(this.hoverXY.x, this.hoverXY.y); return; }
+    }
+    tip.hide();
   }
 
   /** Add the KiCad PCB viewer + a Schematic/PCB toggle to the KiCad pane. */
@@ -361,6 +413,10 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       const d = (e as CustomEvent).detail as { ref: string } | null;
       if (d) this.handleSelect("kicad", "component", this.kicadCompAlias.pcbToSch.get(d.ref) ?? d.ref);
       else this.clearSelection();
+    });
+    pcb.addEventListener("nethover", (e) => {
+      const name = ((e as CustomEvent).detail as { name: string } | null)?.name ?? null;
+      this.handleHover("kicad", "net", name == null ? null : this.kicadAlias.pcbToSch.get(name) ?? name);
     });
   }
 

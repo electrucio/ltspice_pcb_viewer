@@ -28,6 +28,11 @@
       .hdr-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
       ltspice-schematic, kicad-schematic, kicad-pcb { flex: 1 1 60%; min-height: 0; display: block; }
       .hidden { display: none; }
+      #dir-panel { position: fixed; left: 12px; top: 40px; z-index: 50; display: none;
+        max-width: 560px; max-height: 60vh; overflow: auto; padding: 10px 12px;
+        background: rgba(17,22,28,0.97); color: #e6e8ea; border: 1px solid #3a4350; border-radius: 8px;
+        font: 12px ui-monospace, Menlo, monospace; white-space: pre-wrap; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+      #dir-panel.show { display: block; }
 
       /* read-only nets/components sidebar (plain CSS — old-Safari safe) */
       .lists { flex: 0 0 38%; display: flex; flex-direction: column; min-height: 0;
@@ -54,8 +59,10 @@
   <body>
     <div class="bar">
       <strong>LTspice ↔ KiCad — read-only</strong>
+      <button id="b-dir" class="hdr-btn hidden" style="margin-left:12px">ƒ directives</button>
       <span id="meta" class="meta"></span>
     </div>
+    <div id="dir-panel"></div>
     <div class="panes">
       <section class="pane">
         <div class="ph"><span>LTspice</span><small id="lt-name"></small></div>

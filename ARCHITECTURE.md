@@ -89,7 +89,33 @@ placeholder with a JSON payload (`getSources()` + `exportMapping()`; `<` escaped
 `fetch`. Old-Safari strategy: esbuild `build.target:"safari12"` downlevels syntax
 (`?.`,`??`); `compat.ts` shims the method-level gaps (`replaceChildren`, `flatMap`);
 SVG rendering + native Web Components mean no canvas/Path2D or web-components polyfill.
-The payload reserves a `simulation` field for future LTspice sim results.
+The payload's `simulation` field carries the LTspice sim summary (below).
+
+**Simulation summaries (`.raw`/`.op.raw`).** The app can ingest an LTspice transient
+`.raw` (often >100 MB) + optional operating-point `.op.raw`, summarize per-net/per-
+component metrics, and **discard the waveform**. `modules/app/src/sim/raw.ts` reads the
+UTF-16LE header (`Binary:\n`; axis float64 + rest float32) and **streams point-aligned
+slices** (peak RAM ≈ one chunk); `build.ts#buildSimSummary` does one pass computing
+time-weighted V/I/Vdrop/P stats and a windowed-DFT **THD** per net (fundamental from
+`.param in_freq`/`.four`, resolved by `resolveFundamental`). The model + a cursor
+tooltip live in `modules/ltspice_kicad_mapper/src/sim/summary.ts` (`SimSummary`,
+`formatEng`, `createSimTooltip`) — keyed on **LTspice** ids; the mapper resolves a
+hovered KiCad net/component to its LTspice counterpart (store + aliases) before lookup.
+The summary (≈tens of KB) is baked into the export `simulation` field, so the read-only
+viewer shows the same hover tooltip + a SPICE-directives panel offline. Validated against
+the real 183 MB `AudioAmpCompl-40W.raw` (≈0.6 s, streamed) and a synthetic-`.raw` unit test.
+
+*Anonymous-net bridge.* An `.asc` only names nets where a flag/label is dropped; for the
+rest, the LTspice netlister invents `N001`/`N002`/… (→ `V(n001)` in the `.raw`) while our
+viewer independently invents a KiCad-style `Net-(C14.1)`. The two names never match, so
+name-based lookup misses every unlabeled net. Optionally loading the LTspice **SPICE
+netlist** (`.net`, also UTF-16) closes the gap: `sim/netlist.ts` (`parseNetlistRefs` +
+`buildNetNodeAlias`) matches each viewer net to the netlist node touching the **same
+component-ref set** (delimited by the viewer's pin count, so a BJT's 4th substrate node and
+subckt `X`-prefixes are handled) and returns a `viewerNet → ltNode` alias. `buildSimSummary`
+applies it only at `V()` lookup — the summary stays keyed on viewer net names, so tooltip
+and export need no change. The alias is added only for uniquely-matched, name-differing
+nets, so labeled nets are never overridden; unmatched nets fall back to name lookup.
 
 ## Shared conventions (across both viewers)
 

@@ -12,21 +12,36 @@
       .appbar { flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
         padding: 8px 12px; background: #11161c; color: #e6e8ea; }
       .appbar strong { font-size: 14px; }
-      .appbar .hint { color: #8b949e; margin-left: auto; }
-      .appbar button { padding: 7px 13px; background: #1a8f3c; color: #fff; border: none;
-        border-radius: 6px; cursor: pointer; font: inherit; font-weight: 700; }
-      .appbar button:hover { filter: brightness(1.08); }
-      .appbar .msg { color: #39d353; min-width: 120px; }
+      .appbar .sep { margin-left: auto; }
+      .appbar button { padding: 7px 13px; background: #2b333d; color: #e6e8ea; border: 1px solid #3a4350;
+        border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600; }
+      .appbar button:hover { filter: brightness(1.15); }
+      .appbar button.primary { background: #1a8f3c; border-color: #1a8f3c; color: #fff; font-weight: 700; }
+      .appbar .msg { color: #39d353; min-width: 90px; }
       ltspice-kicad-mapper { flex: 1 1 auto; min-height: 0; }
+      /* SPICE directives panel */
+      #dir-panel { position: fixed; right: 12px; top: 48px; z-index: 50; display: none;
+        max-width: 540px; max-height: 60vh; overflow: auto; padding: 10px 12px;
+        background: rgba(17,22,28,0.97); color: #e6e8ea; border: 1px solid #3a4350; border-radius: 8px;
+        font: 12px ui-monospace, Menlo, monospace; white-space: pre-wrap; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+      #dir-panel.show { display: block; }
     </style>
   </head>
   <body>
     <div class="appbar">
       <strong>LTspice ↔ KiCad</strong>
-      <span class="hint">Load files &amp; map below, then export a portable viewer →</span>
-      <button id="download">⬇ Download read-only HTML</button>
+      <span class="sep"></span>
+      <input id="raw-in" type="file" accept=".raw" style="display:none" />
+      <input id="op-in" type="file" accept=".raw" style="display:none" />
+      <input id="net-in" type="file" accept=".net,.cir,.txt" style="display:none" />
+      <button id="load-raw">Load .raw</button>
+      <button id="load-op">Load .op.raw</button>
+      <button id="load-net">Load .net</button>
+      <button id="directives">ƒ directives</button>
+      <button id="download" class="primary">⬇ Download read-only HTML</button>
       <span id="msg" class="msg"></span>
     </div>
+    <div id="dir-panel"></div>
     <ltspice-kicad-mapper id="m" theme="light"></ltspice-kicad-mapper>
     <script type="module" src="./src/main.ts"></script>
   </body>

@@ -118,6 +118,24 @@ export class LtspiceSchematicElement extends HTMLElement {
       .map((n) => ({ name: n.name, isPower: n.isPower, pins: n.pins.map((p) => ({ ref: p.ref, number: p.number })) }));
   }
 
+  /**
+   * SPICE directives placed on the schematic. In `.asc`, directive text is flagged with a
+   * leading `!` (vs `;` for comments) and multi-line blocks join lines with a literal
+   * `\n`. Returns each directive line (the `!` stripped), preserving order.
+   */
+  getDirectives(): string[] {
+    if (!this.schematic) return [];
+    const out: string[] = [];
+    for (const t of this.schematic.texts) {
+      if (!t.str.startsWith("!")) continue;
+      for (const part of t.str.slice(1).split(/\\n/)) {
+        const line = part.trim();
+        if (line) out.push(line);
+      }
+    }
+    return out;
+  }
+
   getComponents(): ComponentInfo[] {
     if (!this.model) return [];
     const nl = this.model.netlist;

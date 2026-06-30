@@ -14,6 +14,7 @@ import { reconcileKicadNets, reconcileKicadComponents, type KicadNetAlias } from
 import type { AvailableIds } from "../../ltspice_kicad_mapper/src/mapping/store.js";
 import { setupCrossProbe } from "./cross-probe.js";
 import { createSidebar } from "./lists.js";
+import { createSimTooltip } from "../../ltspice_kicad_mapper/src/sim/summary.js";
 import type { ExportPayload } from "./payload.js";
 
 const HIGHLIGHT = "#1a8f3c";
@@ -145,6 +146,45 @@ async function boot(): Promise<void> {
   document.getElementById("ki-name")!.textContent = payload.kicadSource;
   document.getElementById("meta")!.textContent =
     `${c.nets} nets · ${c.components} components mapped — click to cross-probe`;
+
+  // ---- simulation hover (read-only) ----
+  const sim = payload.simulation;
+  if (sim) {
+    const tip = createSimTooltip(document.body);
+    let mx = 0, my = 0;
+    window.addEventListener("mousemove", (e) => { mx = e.clientX; my = e.clientY; tip.move(mx, my); });
+    const hoverNet = (origin: "lt" | "ksch" | "kpcb", name: string | null): void => {
+      if (!name) return tip.hide();
+      const ltName = origin === "lt" ? name
+        : origin === "kpcb" ? store.counterpart("net", "kicad", alias.pcbToSch.get(name) ?? name)
+        : store.counterpart("net", "kicad", name);
+      const s = ltName ? sim.nets[ltName] : undefined;
+      if (s) { tip.showNet(ltName!, s); tip.move(mx, my); } else tip.hide();
+    };
+    const hoverComp = (origin: "lt" | "ksch", ref: string | null): void => {
+      if (!ref) return tip.hide();
+      const ltRef = origin === "lt" ? ref : store.counterpart("component", "kicad", ref);
+      const s = ltRef ? sim.comps[ltRef] : undefined;
+      if (s) { tip.showComp(ltRef!, s); tip.move(mx, my); } else tip.hide();
+    };
+    const netName = (e: Event): string | null => ((e as CustomEvent).detail as { name: string } | null)?.name ?? null;
+    const compRef = (e: Event): string | null => ((e as CustomEvent).detail as { ref: string } | null)?.ref ?? null;
+    lt.addEventListener("nethover", (e) => hoverNet("lt", netName(e)));
+    lt.addEventListener("componenthover", (e) => hoverComp("lt", compRef(e)));
+    ksch.addEventListener("nethover", (e) => hoverNet("ksch", netName(e)));
+    ksch.addEventListener("componenthover", (e) => hoverComp("ksch", compRef(e)));
+    kpcb.addEventListener("nethover", (e) => hoverNet("kpcb", netName(e)));
+  }
+
+  // ---- SPICE directives panel ----
+  const dirs = sim?.directives ?? [];
+  if (dirs.length) {
+    const bDir = document.getElementById("b-dir")!;
+    const panel = document.getElementById("dir-panel")!;
+    panel.textContent = dirs.join("\n");
+    bDir.classList.remove("hidden");
+    bDir.addEventListener("click", () => panel.classList.toggle("show"));
+  }
 }
 
 void boot();
