@@ -175,6 +175,8 @@ async function boot(): Promise<void> {
     const tip = createSimTooltip(document.body);
     let mx = 0, my = 0;
     window.addEventListener("mousemove", (e) => { mx = e.clientX; my = e.clientY; tip.move(mx, my); });
+    // touch has no hover: track the tap position so the tooltip (shown on tap) is placed there
+    window.addEventListener("touchstart", (e) => { const t = e.touches[0]; if (t) { mx = t.clientX; my = t.clientY; } }, { passive: true });
     const hoverNet = (origin: "lt" | "ksch" | "kpcb", name: string | null): void => {
       if (!name) return tip.hide();
       const ltName = origin === "lt" ? name

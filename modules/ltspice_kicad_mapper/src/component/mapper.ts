@@ -294,6 +294,11 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       this.hoverXY = { x: e.clientX, y: e.clientY };
       this.simTip?.move(e.clientX, e.clientY);
     });
+    // touch has no hover: track the tap position so the tooltip (shown on tap) is placed there
+    wrap.addEventListener("touchstart", (e) => {
+      const t = e.touches[0];
+      if (t) this.hoverXY = { x: t.clientX, y: t.clientY };
+    }, { passive: true });
 
     this.applyTheme(this.getAttribute("theme") ?? "light");
     this.updateCounts();

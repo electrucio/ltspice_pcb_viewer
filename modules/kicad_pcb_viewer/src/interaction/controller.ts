@@ -145,26 +145,27 @@ export class PcbController {
     };
     this.svg.addEventListener("pointerup", end);
 
-    // Touch: one-finger pan + two-finger pinch-zoom (Touch Events — works on iOS Safari 12+,
-    // which lacks Pointer Events). `touch-action: none` (theme) keeps the browser hands-off.
+    // Touch: tap to select, one-finger pan, two-finger pinch-zoom (Touch Events — works on
+    // iOS Safari 12+, which lacks Pointer Events; those are suppressed for touch above).
+    // `touch-action: none` (theme) keeps the browser hands-off. A tap fires the same
+    // handleClick as a mouse click AND emits a net hover so the sim tooltip shows on touch.
+    const tPos = (t: Touch) => ({ x: t.clientX, y: t.clientY });
     const tMid = (a: Touch, b: Touch) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
     const tDistOf = (a: Touch, b: Touch) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-    let tMode = 0; // 0 idle, 1 pan, 2 pinch
-    let tLast = { x: 0, y: 0 };
-    let tDist = 0;
-    const tSeed = (e: TouchEvent) => {
-      if (e.touches.length >= 2) { tMode = 2; tDist = tDistOf(e.touches[0]!, e.touches[1]!); tLast = tMid(e.touches[0]!, e.touches[1]!); }
-      else if (e.touches.length === 1) { tMode = 1; tLast = { x: e.touches[0]!.clientX, y: e.touches[0]!.clientY }; }
-      else { tMode = 0; }
-    };
-    this.svg.addEventListener("touchstart", tSeed, { passive: false });
-    this.svg.addEventListener("touchend", tSeed);
-    this.svg.addEventListener("touchcancel", tSeed);
+    let tMode = 0; // 0 idle, 1 pan/tap, 2 pinch
+    let tLast = { x: 0, y: 0 }, tStart = { x: 0, y: 0 };
+    let tDist = 0, tMoved = false;
+    let tDownHit: { net?: string; ref?: string } = {};
+    this.svg.addEventListener("touchstart", (e) => {
+      if (e.touches.length >= 2) { tMode = 2; tMoved = true; tDist = tDistOf(e.touches[0]!, e.touches[1]!); tLast = tMid(e.touches[0]!, e.touches[1]!); }
+      else if (e.touches.length === 1) { tMode = 1; tMoved = false; tStart = tLast = tPos(e.touches[0]!); tDownHit = this.hitFrom(e); }
+    }, { passive: false });
     this.svg.addEventListener("touchmove", (e) => {
       e.preventDefault();
       const r = this.svg.getBoundingClientRect();
       if (tMode === 1 && e.touches.length === 1) {
-        const p = { x: e.touches[0]!.clientX, y: e.touches[0]!.clientY };
+        const p = tPos(e.touches[0]!);
+        if (Math.hypot(p.x - tStart.x, p.y - tStart.y) > 8) tMoved = true;
         this.vb.x -= ((p.x - tLast.x) / r.width) * this.vb.w;
         this.vb.y -= ((p.y - tLast.y) / r.height) * this.vb.h;
         tLast = p;
@@ -179,6 +180,17 @@ export class PcbController {
         tDist = d; tLast = m;
       }
     }, { passive: false });
+    const tEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) {
+        if (tMode === 1 && !tMoved) {
+          this.handleClick(tDownHit);
+          this.events.onNetHover?.(tDownHit.net ?? null);
+        }
+        tMode = 0;
+      } else if (e.touches.length === 1) { tMode = 1; tMoved = true; tStart = tLast = tPos(e.touches[0]!); }
+    };
+    this.svg.addEventListener("touchend", tEnd);
+    this.svg.addEventListener("touchcancel", tEnd);
   }
 
   private hitFrom(e: Event): { net?: string; ref?: string } {
