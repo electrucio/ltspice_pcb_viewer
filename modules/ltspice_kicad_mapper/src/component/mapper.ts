@@ -55,6 +55,7 @@ interface PcbViewerElement extends HTMLElement {
   fit(): void;
   rotate90(): number;
   getRotation(): number;
+  toggleMirror(): void;
   loadFromString(text: string): void;
 }
 
@@ -110,6 +111,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
   private pcbFitted = false;
   private viewSegEl!: HTMLElement;
   private rotBtnEl: HTMLButtonElement | null = null;
+  private mirBtnEl: HTMLButtonElement | null = null;
 
   // raw sources retained for static export
   private raw = { ltspice: "", kicadSch: "", kicadPcb: "" };
@@ -198,6 +200,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       btns[1]!.classList.toggle("active", view === "pcb");
     }
     if (this.rotBtnEl) this.rotBtnEl.style.display = view === "pcb" ? "" : "none";
+    if (this.mirBtnEl) this.mirBtnEl.style.display = view === "pcb" ? "" : "none";
     if (view === "pcb" && this.pcbReady && !this.pcbFitted) { this.kicadPcb.fit(); this.pcbFitted = true; }
   }
 
@@ -391,6 +394,18 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     rotBtn.style.display = "none";
     this.rotBtnEl = rotBtn;
     header.insertBefore(rotBtn, this.sides.kicad.fnameEl);
+
+    // Mirror button (PCB only) — flips the board horizontally
+    let mirrored = false;
+    const mirBtn = this.button("⇄ Mirror", () => {
+      this.kicadPcb.toggleMirror();
+      mirrored = !mirrored;
+      mirBtn.classList.toggle("active", mirrored);
+    });
+    mirBtn.classList.add("hdrbtn");
+    mirBtn.style.display = "none";
+    this.mirBtnEl = mirBtn;
+    header.insertBefore(mirBtn, this.sides.kicad.fnameEl);
 
     const pcb = document.createElement("kicad-pcb") as PcbViewerElement;
     pcb.classList.add("viewer", "hidden");
