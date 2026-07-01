@@ -41,7 +41,7 @@ export const STYLESHEET = `
   --ksv-mark: #39d353;
   --ksv-hover: #c08bff;
 }
-.ksv-root { width: 100%; height: 100%; transform-origin: 0 0; }
+.ksv-root { width: 100%; height: 100%; }
 svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
 svg.ksv-panning { cursor: grabbing; }
 
