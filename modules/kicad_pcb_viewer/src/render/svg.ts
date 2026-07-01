@@ -24,15 +24,28 @@ function el<K extends keyof SVGElementTagNameMap>(name: K, attrs: Record<string,
 }
 const layerId = (layer: string): string => layer.replace(/[.+]/g, "_");
 
-function arcPath(s: Point, m: Point, e: Point): string {
+/**
+ * SVG path for a circular arc given by three points on it (KiCad's `start`/`mid`/`end`).
+ * Both the sweep-flag and the large-arc-flag are derived from the arc angles so that the
+ * rendered arc actually passes through `mid` (KiCad stores arcs Y-down, same as SVG here,
+ * so a positive-angle sweep maps directly to SVG sweep-flag 1). Collinear points → a line.
+ */
+export function arcPath(s: Point, m: Point, e: Point): string {
   const ax = s.x, ay = s.y, bx = m.x, by = m.y, cx = e.x, cy = e.y;
   const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
   if (Math.abs(d) < 1e-9) return `M ${ax} ${ay} L ${cx} ${cy}`;
   const ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d;
   const uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d;
   const r = Math.hypot(ax - ux, ay - uy);
-  const sweep = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax) < 0 ? 1 : 0;
-  return `M ${ax} ${ay} A ${r} ${r} 0 0 ${sweep} ${cx} ${cy}`;
+  const TAU = 2 * Math.PI;
+  const norm = (t: number): number => ((t % TAU) + TAU) % TAU;
+  const a0 = Math.atan2(ay - uy, ax - ux);
+  const dM = norm(Math.atan2(by - uy, bx - ux) - a0);
+  const dE = norm(Math.atan2(cy - uy, cx - ux) - a0);
+  const sweep = dM <= dE ? 1 : 0; // positive-angle direction reaches mid before end
+  const span = sweep ? dE : TAU - dE;
+  const large = span > Math.PI ? 1 : 0;
+  return `M ${ax} ${ay} A ${r} ${r} 0 ${large} ${sweep} ${cx} ${cy}`;
 }
 
 function strokeGraphic(g: FpGraphic | BoardGraphic, cls: string): SVGElement | null {
