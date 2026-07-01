@@ -11,7 +11,7 @@ import "../../ltspice_kicad_mapper/src/index.js"; // registers <ltspice-kicad-ma
 import type { LtspiceKicadMapperElement, SimSummary } from "../../ltspice_kicad_mapper/src/index.js";
 import viewerTemplate from "./generated/viewer.html?raw";
 import type { ExportPayload } from "../viewer/payload.js";
-import { buildSimSummary } from "./sim/build.js";
+import { buildSimSummary, compType } from "./sim/build.js";
 import { decodeNetlist, parseNetlistRefs, buildNetNodeAlias } from "./sim/netlist.js";
 import { decodeLog, parseLog, mergeLog, type ParsedLog } from "./sim/logfile.js";
 
@@ -25,6 +25,7 @@ let rawFile: File | null = null;
 let opFile: File | null = null;
 let netFile: File | null = null;
 let netAlias: Map<string, string> | undefined; // viewerNet → LTspice node (from the .net)
+let qNodes: Map<string, string[]> | undefined; // ref → SPICE-order nodes, for transistors (from the .net)
 let logData: ParsedLog | null = null;
 let logName = "";
 
@@ -84,12 +85,22 @@ async function rebuild(): Promise<void> {
   if (!rawFile) return;
   const comps = mapper.getLtspiceComponents();
   netAlias = undefined;
+  qNodes = undefined;
   if (netFile) {
     try {
-      netAlias = buildNetNodeAlias(parseNetlistRefs(decodeNetlist(await netFile.arrayBuffer())), comps);
-    } catch { /* fall back to name-based lookup */ }
+      const refTokens = parseNetlistRefs(decodeNetlist(await netFile.arrayBuffer()));
+      netAlias = buildNetNodeAlias(refTokens, comps);
+      // SPICE-order nodes for transistors: robust against symbols whose PIN order doesn't
+      // (or can't be trusted to) match the model's collector/base/emitter argument order.
+      qNodes = new Map();
+      for (const c of comps) {
+        if (compType(c.ref) !== "Q") continue;
+        const nodes = refTokens.get(c.ref);
+        if (nodes) qNodes.set(c.ref, nodes.slice(0, 3));
+      }
+    } catch { /* fall back to name-based lookup / viewer pin order */ }
   }
-  const ctx = { nets: mapper.getLtspiceNets(), comps, directives: mapper.getLtspiceDirectives(), netAlias };
+  const ctx = { nets: mapper.getLtspiceNets(), comps, directives: mapper.getLtspiceDirectives(), netAlias, qNodes };
   setMsg(`processing ${rawFile.name}…`);
   try {
     builtSummary = await buildSimSummary(rawFile, opFile, ctx, rawFile.name, {

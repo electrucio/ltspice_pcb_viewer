@@ -248,6 +248,7 @@ export function createSimTooltip(host: HTMLElement | ShadowRoot): SimTooltip {
         if (s.i) statRows(box, "I", s.i, "A");
         if (s.vdrop) statRows(box, "Vdrop", s.vdrop, "V");
         if (s.pAvg != null) box.appendChild(rowEl("P avg", formatEng(s.pAvg, "W")));
+        if (s.dcP != null) box.appendChild(rowEl("P DC", formatEng(s.dcP, "W")));
         if (s.ic) box.appendChild(rowEl("Ic avg/rms", formatEng(s.ic.avg, "A") + " / " + formatEng(s.ic.rms, "A")));
         if (s.ib) box.appendChild(rowEl("Ib avg", formatEng(s.ib.avg, "A")));
         if (s.ie) box.appendChild(rowEl("Ie avg", formatEng(s.ie.avg, "A")));

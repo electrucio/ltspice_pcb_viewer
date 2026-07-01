@@ -18,6 +18,14 @@ export interface LtCtx {
   /** Optional `viewerNet → LTspice node` alias (from the SPICE netlist) so anonymous nets
    *  like `Net-(C14.1)` resolve to the `.raw`'s `V(n008)`. Built by `buildNetNodeAlias`. */
   netAlias?: Map<string, string>;
+  /** Optional per-ref SPICE-order node list (from the same parsed netlist, e.g.
+   *  `parseNetlistRefs(...).get(ref)`), used to identify transistor terminals (collector,
+   *  base, emitter) robustly. The `.asy` symbol's PIN order is *supposed* to equal SPICE
+   *  order, and does for the built-in symbols, but a custom/third-party symbol isn't
+   *  guaranteed to — the netlist is LTspice's own resolved order and can't be wrong. When a
+   *  ref has no entry here (no `.net` loaded, or the ref is missing from it), transistor
+   *  power falls back to the viewer's `LtComp.nets` order (best-effort). */
+  qNodes?: Map<string, string[]>;
 }
 
 class Acc {
@@ -35,7 +43,7 @@ class Acc {
   }
 }
 
-const compType = (ref: string): string => (ref.match(/^[A-Za-z]+/)?.[0] ?? "").toUpperCase().charAt(0);
+export const compType = (ref: string): string => (ref.match(/^[A-Za-z]+/)?.[0] ?? "").toUpperCase().charAt(0);
 
 export interface BuildOpts {
   onProgress?: (frac: number) => void;
@@ -78,11 +86,21 @@ export async function buildSimSummary(
   }
 
   // --- components ---
+  // Resolve a net to a `.raw` voltage var: null = unresolvable, { vi: null } = grounded (0V).
+  const vref = (n: string | undefined): { vi: number | null } | null => {
+    if (n == null) return null;
+    if (n === "0") return { vi: null };
+    const v = vi("v(" + node(n) + ")");
+    return v == null ? null : { vi: v };
+  };
   interface CompAcc {
     ref: string; type: string;
     iVi?: number; i?: Acc;
     aVi?: number | null; bVi?: number | null; aNet?: string; bNet?: string; vdrop?: Acc; pSum?: number; // 2-terminal
-    cVi?: number; bcVi?: number; eVi?: number; ic?: Acc; ib?: Acc; ie?: Acc; // transistor
+    cVi?: number; bcVi?: number; eVi?: number; ic?: Acc; ib?: Acc; ie?: Acc; // transistor currents
+    // transistor power Pdiss = Vce·Ic (+ Vbe·Ib when Ib is also known): terminal voltage var
+    // indices (null = grounded) + net names (for the DC/.op figure) + the accumulated ∫P·dt.
+    qPow?: { cVi: number | null; eVi: number | null; bVi: number | null; hasIb: boolean; sum: number; collNet: string; emitNet: string; baseNet?: string };
   }
   const compAccs: CompAcc[] = [];
   for (const c of ctx.comps) {
@@ -93,6 +111,20 @@ export async function buildSimSummary(
       if (ic != null) { ca.cVi = ic; ca.ic = new Acc(); needed.add(ic); }
       if (ib != null) { ca.bcVi = ib; ca.ib = new Acc(); needed.add(ib); }
       if (ie != null) { ca.eVi = ie; ca.ie = new Acc(); needed.add(ie); }
+
+      // Dissipated power, identifying collector/base/emitter from the SPICE netlist's node
+      // order when available (robust — independent of how the symbol happens to be drawn),
+      // else falling back to the viewer's pin order (correct for standard C/B/E symbols,
+      // best-effort for anything else).
+      const [collNet, baseNet, emitNet] = ctx.qNodes?.get(c.ref) ?? c.nets;
+      const vc = vref(collNet), ve = vref(emitNet);
+      if (ic != null && vc && ve) {
+        const vb = ib != null ? vref(baseNet) : null;
+        ca.qPow = { cVi: vc.vi, eVi: ve.vi, bVi: vb ? vb.vi : null, hasIb: !!vb, sum: 0, collNet: collNet!, emitNet: emitNet!, baseNet: vb ? baseNet : undefined };
+        if (vc.vi != null) needed.add(vc.vi);
+        if (ve.vi != null) needed.add(ve.vi);
+        if (vb && vb.vi != null) needed.add(vb.vi);
+      }
     } else {
       const iv = vi("i(" + c.ref + ")");
       if (iv != null) { ca.iVi = iv; ca.i = new Acc(); needed.add(iv); }
@@ -138,6 +170,16 @@ export async function buildSimSummary(
       if (ca.ic) ca.ic.add(vals[ca.cVi!]!, dt);
       if (ca.ib) ca.ib.add(vals[ca.bcVi!]!, dt);
       if (ca.ie) ca.ie.add(vals[ca.eVi!]!, dt);
+      if (ca.qPow) {
+        const vc = ca.qPow.cVi == null ? 0 : vals[ca.qPow.cVi]!;
+        const ve = ca.qPow.eVi == null ? 0 : vals[ca.qPow.eVi]!;
+        let p = (vc - ve) * vals[ca.cVi!]!; // Vce · Ic
+        if (ca.qPow.hasIb) {
+          const vb = ca.qPow.bVi == null ? 0 : vals[ca.qPow.bVi]!;
+          p += (vb - ve) * vals[ca.bcVi!]!; // + Vbe · Ib
+        }
+        ca.qPow.sum += p * dt;
+      }
     }
   }, opts.onProgress, opts.pointsPerChunk);
 
@@ -166,6 +208,18 @@ export async function buildSimSummary(
     if (ca.ib) { cs.ib = ca.ib.stat(T); cs.dcIb = opCurrent(opMap, "ib(" + ca.ref + ")"); }
     if (ca.ie) { cs.ie = ca.ie.stat(T); cs.dcIe = opCurrent(opMap, "ie(" + ca.ref + ")"); }
     if (cs.dcIc != null && cs.dcIb) cs.betaDc = cs.dcIc / cs.dcIb;
+    if (ca.qPow) {
+      cs.pAvg = T > 0 ? ca.qPow.sum / T : 0;
+      const dVc = opV(ca.qPow.collNet), dVe = opV(ca.qPow.emitNet);
+      if (dVc != null && dVe != null && cs.dcIc != null) {
+        let dP = (dVc - dVe) * cs.dcIc;
+        if (ca.qPow.hasIb && ca.qPow.baseNet != null && cs.dcIb != null) {
+          const dVb = opV(ca.qPow.baseNet);
+          if (dVb != null) dP += (dVb - dVe) * cs.dcIb;
+        }
+        cs.dcP = dP;
+      }
+    }
     comps[ca.ref] = cs;
   }
 
