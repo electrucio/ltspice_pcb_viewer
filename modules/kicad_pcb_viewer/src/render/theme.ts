@@ -20,7 +20,7 @@ export const STYLESHEET = `
   overflow: hidden; background: var(--pcb-bg);
   font-family: ui-sans-serif, system-ui, sans-serif;
 }
-.pcb-root { width: 100%; height: 100%; }
+.pcb-root { width: 100%; height: 100%; transform-origin: 0 0; }
 svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
 svg.pcb-panning { cursor: grabbing; }
 

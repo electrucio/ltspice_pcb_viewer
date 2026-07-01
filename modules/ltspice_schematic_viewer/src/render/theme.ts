@@ -40,7 +40,7 @@ export const STYLESHEET = `
   --ksv-mark: #1a9e4b;
   --ksv-hover: #8957e5;
 }
-.ksv-root { width: 100%; height: 100%; }
+.ksv-root { width: 100%; height: 100%; transform-origin: 0 0; }
 svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
 svg.ksv-panning { cursor: grabbing; }
 
