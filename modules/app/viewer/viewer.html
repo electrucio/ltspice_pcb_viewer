@@ -13,8 +13,12 @@
         padding: 8px 12px; background: #f3f5f8; border-bottom: 1px solid #c9d1da; }
       .bar .meta { color: #5b6673; margin-left: auto; }
       .panes { flex: 1 1 auto; display: flex; min-height: 0; }
-      .pane { flex: 1 1 50%; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid #c9d1da; }
-      .pane:last-child { border-right: none; }
+      .pane { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+      /* draggable separator between the LTspice and KiCad panes */
+      .divider { flex: 0 0 8px; align-self: stretch; cursor: col-resize; background: #c9d1da;
+        touch-action: none; position: relative; }
+      .divider:hover, .divider.drag { background: #4f99bd; }
+      .divider::before { content: ""; position: absolute; left: -6px; right: -6px; top: 0; bottom: 0; }
       .ph { flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
         padding: 6px 12px; background: #f3f5f8; border-bottom: 1px solid #c9d1da; font-weight: 700; }
       .ph small { color: #5b6673; font-weight: 400; margin-left: auto; }
@@ -68,6 +72,7 @@
         <div class="ph"><span>LTspice</span><small id="lt-name"></small></div>
         <ltspice-schematic id="lt" interactive></ltspice-schematic>
       </section>
+      <div class="divider" id="split" title="Drag to resize · double-tap to reset"></div>
       <section class="pane">
         <div class="ph">
           <span>KiCad</span>

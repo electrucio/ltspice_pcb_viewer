@@ -119,6 +119,7 @@ export class PcbController {
     }, { passive: false });
 
     this.svg.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "touch") return; // touch is handled by the Touch Events below
       this.dragging = true;
       this.moved = false;
       this.last = { x: e.clientX, y: e.clientY };
@@ -127,6 +128,7 @@ export class PcbController {
       this.svg.setPointerCapture(e.pointerId);
     });
     this.svg.addEventListener("pointermove", (e) => {
+      if (e.pointerType === "touch") return; // touch is handled by the Touch Events below
       if (!this.dragging) { this.events.onNetHover?.(this.hitFrom(e).net ?? null); return; }
       const dx = e.clientX - this.last.x, dy = e.clientY - this.last.y;
       if (Math.abs(dx) + Math.abs(dy) > 2) this.moved = true;
@@ -142,6 +144,41 @@ export class PcbController {
       this.svg.classList.remove("pcb-panning");
     };
     this.svg.addEventListener("pointerup", end);
+
+    // Touch: one-finger pan + two-finger pinch-zoom (Touch Events — works on iOS Safari 12+,
+    // which lacks Pointer Events). `touch-action: none` (theme) keeps the browser hands-off.
+    const tMid = (a: Touch, b: Touch) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+    const tDistOf = (a: Touch, b: Touch) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    let tMode = 0; // 0 idle, 1 pan, 2 pinch
+    let tLast = { x: 0, y: 0 };
+    let tDist = 0;
+    const tSeed = (e: TouchEvent) => {
+      if (e.touches.length >= 2) { tMode = 2; tDist = tDistOf(e.touches[0]!, e.touches[1]!); tLast = tMid(e.touches[0]!, e.touches[1]!); }
+      else if (e.touches.length === 1) { tMode = 1; tLast = { x: e.touches[0]!.clientX, y: e.touches[0]!.clientY }; }
+      else { tMode = 0; }
+    };
+    this.svg.addEventListener("touchstart", tSeed, { passive: false });
+    this.svg.addEventListener("touchend", tSeed);
+    this.svg.addEventListener("touchcancel", tSeed);
+    this.svg.addEventListener("touchmove", (e) => {
+      e.preventDefault();
+      const r = this.svg.getBoundingClientRect();
+      if (tMode === 1 && e.touches.length === 1) {
+        const p = { x: e.touches[0]!.clientX, y: e.touches[0]!.clientY };
+        this.vb.x -= ((p.x - tLast.x) / r.width) * this.vb.w;
+        this.vb.y -= ((p.y - tLast.y) / r.height) * this.vb.h;
+        tLast = p;
+        this.applyViewBox();
+      } else if (tMode === 2 && e.touches.length >= 2) {
+        const d = tDistOf(e.touches[0]!, e.touches[1]!);
+        const m = tMid(e.touches[0]!, e.touches[1]!);
+        if (d > 0 && tDist > 0) this.zoomAt(m.x, m.y, tDist / d); // fingers apart → factor<1 → zoom in
+        this.vb.x -= ((m.x - tLast.x) / r.width) * this.vb.w;
+        this.vb.y -= ((m.y - tLast.y) / r.height) * this.vb.h;
+        this.applyViewBox();
+        tDist = d; tLast = m;
+      }
+    }, { passive: false });
   }
 
   private hitFrom(e: Event): { net?: string; ref?: string } {

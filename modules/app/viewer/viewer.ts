@@ -147,6 +147,28 @@ async function boot(): Promise<void> {
   document.getElementById("meta")!.textContent =
     `${c.nets} nets · ${c.components} components mapped — click to cross-probe`;
 
+  // ---- draggable divider between the LTspice and KiCad panes (mouse + touch) ----
+  const panes = document.querySelector(".panes") as HTMLElement;
+  const divider = document.getElementById("split")!;
+  const left = panes.children[0] as HTMLElement;
+  const right = panes.children[2] as HTMLElement; // [0]=left pane, [1]=divider, [2]=right pane
+  let dragging = false;
+  const setSplit = (clientX: number): void => {
+    const r = panes.getBoundingClientRect();
+    const p = Math.max(12, Math.min(88, ((clientX - r.left) / r.width) * 100));
+    left.style.flex = `${p} 1 0`;
+    right.style.flex = `${100 - p} 1 0`;
+  };
+  const startDrag = (): void => { dragging = true; divider.classList.add("drag"); document.body.style.userSelect = "none"; };
+  const endDrag = (): void => { dragging = false; divider.classList.remove("drag"); document.body.style.userSelect = ""; };
+  divider.addEventListener("mousedown", (e) => { e.preventDefault(); startDrag(); });
+  window.addEventListener("mousemove", (e) => { if (dragging) setSplit(e.clientX); });
+  window.addEventListener("mouseup", endDrag);
+  divider.addEventListener("touchstart", (e) => { e.preventDefault(); startDrag(); }, { passive: false });
+  divider.addEventListener("touchmove", (e) => { e.preventDefault(); if (e.touches[0]) setSplit(e.touches[0].clientX); }, { passive: false });
+  divider.addEventListener("touchend", endDrag);
+  divider.addEventListener("dblclick", () => { left.style.flex = "1 1 0"; right.style.flex = "1 1 0"; });
+
   // ---- simulation hover (read-only) ----
   const sim = payload.simulation;
   if (sim) {
