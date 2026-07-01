@@ -67,6 +67,32 @@ viewer/  (read-only export)         viewer.html + viewer.ts + cross-probe.ts
 - Rendering is **SVG** (no canvas `Path2D`); Web Components / Shadow DOM are native in
   iOS Safari 10.1+; no web-components polyfill is needed for the iOS 12 target.
 
+## Deploying the app (GitHub Pages)
+
+The app is a pure client-side SPA (no backend; static asset `fetch()` calls are
+page-relative), so it can be served as-is from GitHub Pages. It's published to
+`electrucio.github.io/ltspice-kicad-mapper/` by `.github/workflows/deploy-app.yml`,
+which builds `modules/app` with `VITE_BASE=/ltspice-kicad-mapper/` (see `vite.config.ts`
+— the built `index.html` otherwise references assets from the site **root**, which
+would collide with the other content already at `electrucio.github.io`'s root) and
+pushes `dist-app/` into that subfolder of the `electrucio/electrucio.github.io` repo.
+
+One-time setup (must be done by a human on github.com — not automatable from here):
+
+1. **Push this repo to GitHub** (it currently only exists locally): create a repo (e.g.
+   under the `electrucio` account) and `git remote add origin <url> && git push -u origin main`.
+2. **Create a deploy token**: a classic PAT with `repo` scope, or a fine-grained PAT
+   scoped to `electrucio/electrucio.github.io` with **Contents: read and write** —
+   created on the account that has push access to that repo.
+3. **Add it as a secret** named `PAGES_DEPLOY_TOKEN` in this repo's
+   **Settings → Secrets and variables → Actions**.
+4. Push to `main` (touching `modules/app/**` or a sibling viewer module) — the workflow
+   builds and deploys automatically. Use the **Run workflow** button (workflow_dispatch)
+   for a manual first run.
+
+To change the target subfolder or repo, edit `DEPLOY_SUBPATH` / the `repository:` field
+in `.github/workflows/deploy-app.yml`.
+
 ## Future
 
 The export payload reserves a `simulation` field (currently `null`) for upcoming
