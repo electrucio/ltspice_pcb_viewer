@@ -11,7 +11,7 @@ import "../../ltspice_kicad_mapper/src/index.js"; // registers <ltspice-kicad-ma
 import type { LtspiceKicadMapperElement, SimSummary } from "../../ltspice_kicad_mapper/src/index.js";
 import viewerTemplate from "./generated/viewer.html?raw";
 import type { ExportPayload } from "../viewer/payload.js";
-import { buildSimSummary } from "./sim/build.js";
+import { buildSimSummary, resolveFundamental } from "./sim/build.js";
 import { decodeNetlist, parseNetlistRefs, buildNetNodeAlias } from "./sim/netlist.js";
 
 const mapper = document.getElementById("m") as LtspiceKicadMapperElement;
@@ -22,6 +22,8 @@ let simulation: SimSummary | null = null;
 let rawFile: File | null = null;
 let opFile: File | null = null;
 let netFile: File | null = null;
+// analysis options chosen in the "Process simulation" dialog (persist across .op/.net reloads)
+const simOpts = { thd: true, f0: null as number | null, ripple: true, mains: 50 };
 
 async function boot(): Promise<void> {
   // register the project's custom potentiometer symbols on the LTspice side first
@@ -93,11 +95,15 @@ async function processSim(): Promise<void> {
   try {
     simulation = await buildSimSummary(rawFile, opFile, ctx, rawFile.name, {
       onProgress: (f) => setMsg(`processing ${rawFile!.name}… ${Math.round(f * 100)}%`),
+      thdF0: simOpts.thd ? simOpts.f0 : null,
+      mainsF0: simOpts.ripple ? simOpts.mains : null,
     });
     mapper.setSimulation(simulation);
     const nN = Object.keys(simulation.nets).length, nC = Object.keys(simulation.comps).length;
     const aliased = netAlias?.size ? ` · ${netAlias.size} via netlist` : "";
-    setMsg(`sim ✓ ${nN} nets · ${nC} parts${simulation.f0 ? ` · f₀ ${simulation.f0} Hz` : ""}${aliased} — hover to inspect`);
+    const thd = simOpts.thd && simulation.f0 ? ` · THD@${simulation.f0}Hz` : "";
+    const rip = simOpts.ripple ? ` · ripple@${simulation.mainsF0}Hz` : "";
+    setMsg(`sim ✓ ${nN} nets · ${nC} parts${thd}${rip}${aliased} — hover to inspect`);
   } catch (e) {
     setMsg(`sim failed: ${(e as Error).message}`);
   }
@@ -108,8 +114,46 @@ function pick(inputId: string, onFile: (f: File) => void): void {
   input.onchange = () => { const f = input.files?.[0]; if (f) onFile(f); input.value = ""; };
   input.click();
 }
+// ---- "Process simulation" options dialog (shown when a .raw is loaded) ----
+const modal = document.getElementById("sim-modal")!;
+const thdCb = document.getElementById("opt-thd") as HTMLInputElement;
+const f0In = document.getElementById("opt-f0") as HTMLInputElement;
+const ripCb = document.getElementById("opt-ripple") as HTMLInputElement;
+const mainsIn = document.getElementById("opt-mains") as HTMLInputElement;
+
+function syncModalEnabled(): void {
+  f0In.disabled = !thdCb.checked;
+  mainsIn.disabled = !ripCb.checked;
+  document.getElementById("opt-thd-row")!.classList.toggle("disabled", !thdCb.checked);
+  document.getElementById("opt-ripple-row")!.classList.toggle("disabled", !ripCb.checked);
+}
+thdCb.addEventListener("change", syncModalEnabled);
+ripCb.addEventListener("change", syncModalEnabled);
+
+function openSimDialog(): void {
+  document.getElementById("sim-file")!.textContent = rawFile?.name ?? "";
+  // autofill f₀ from the SPICE directives (`.four`/`.param in_freq`), else keep last / blank
+  const auto = resolveFundamental(mapper.getLtspiceDirectives()).f0 ?? simOpts.f0;
+  thdCb.checked = simOpts.thd;
+  f0In.value = auto != null ? String(auto) : "";
+  ripCb.checked = simOpts.ripple;
+  mainsIn.value = String(simOpts.mains);
+  syncModalEnabled();
+  modal.classList.add("show");
+}
+document.getElementById("sim-cancel")!.addEventListener("click", () => modal.classList.remove("show"));
+document.getElementById("sim-ok")!.addEventListener("click", () => {
+  const f0 = parseFloat(f0In.value), mains = parseFloat(mainsIn.value);
+  simOpts.thd = thdCb.checked && isFinite(f0) && f0 > 0;
+  simOpts.f0 = simOpts.thd ? f0 : null;
+  simOpts.ripple = ripCb.checked && isFinite(mains) && mains > 0;
+  simOpts.mains = simOpts.ripple ? mains : simOpts.mains;
+  modal.classList.remove("show");
+  void processSim();
+});
+
 document.getElementById("load-raw")!.addEventListener("click", () =>
-  pick("raw-in", (f) => { rawFile = f; void processSim(); }));
+  pick("raw-in", (f) => { rawFile = f; openSimDialog(); }));
 document.getElementById("load-op")!.addEventListener("click", () =>
   pick("op-in", (f) => { opFile = f; if (rawFile) void processSim(); else setMsg("loaded .op.raw — now load the transient .raw"); }));
 document.getElementById("load-net")!.addEventListener("click", () =>

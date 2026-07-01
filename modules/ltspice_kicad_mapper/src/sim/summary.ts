@@ -15,12 +15,23 @@ export interface Stat {
   pp: number;
 }
 
+/** Mains-hum analysis base frequency (Hz) and harmonic count — single source of truth,
+ *  imported by the summary builder so the computed bins and the tooltip labels agree. */
+export const MAINS_F0 = 50;
+export const MAINS_N = 5;
+/** Number of signal harmonics (k·f₀) listed in the spectrum. */
+export const HARM_N = 10;
+
 export interface NetSim {
   v: Stat;
   dc: number | null; // DC operating-point bias (from .op.raw), else null
   a1?: number; // fundamental amplitude
   thdPct?: number;
   thdDb?: number;
+  /** Peak amplitudes (V) at k·f₀ for k=1..HARM_N (index 0 = fundamental); set only when f₀ known. */
+  harm?: number[];
+  /** Peak amplitudes (V) at m·MAINS_F0 for m=1..MAINS_N (mains hum/ripple); always set. */
+  mains?: number[];
 }
 
 export interface CompSim {
@@ -48,6 +59,7 @@ export interface SimSummary {
   nPoints: number;
   source: string; // .raw filename
   directives: string[]; // SPICE directives from the .asc
+  mainsF0?: number; // mains-hum base frequency (Hz) used for the hum spectrum
   nets: Record<string, NetSim>; // keyed by LTspice net name
   comps: Record<string, CompSim>; // keyed by LTspice component ref
 }
@@ -77,7 +89,9 @@ export function formatEng(v: number | null | undefined, unit: string): string {
 
 export interface SimTooltip {
   el: HTMLElement;
-  showNet(name: string, s: NetSim): void;
+  /** `f0` (Hz) labels the signal harmonics with their absolute frequencies (k·f₀);
+   *  `mainsF0` (Hz) labels the ripple spectrum (defaults to MAINS_F0). */
+  showNet(name: string, s: NetSim, ctx?: { f0?: number | null; mainsF0?: number }): void;
   showComp(ref: string, s: CompSim): void;
   move(clientX: number, clientY: number): void;
   hide(): void;
@@ -100,6 +114,66 @@ function statRows(box: HTMLElement, label: string, s: Stat, unit: string): void 
   box.appendChild(rowEl(label + " pp", formatEng(s.pp, unit)));
 }
 
+function subHeader(text: string): HTMLElement {
+  const h = document.createElement("div");
+  h.textContent = text;
+  h.style.margin = "6px 0 1px";
+  h.style.fontSize = "9px";
+  h.style.letterSpacing = "0.04em";
+  h.style.textTransform = "uppercase";
+  h.style.opacity = "0.55";
+  return h;
+}
+
+const dbStr = (db: number): string => (isFinite(db) ? (db >= 0 ? "+" : "") + db.toFixed(1) : "–");
+/** dBV / dBc reference floor: treat sub-atto amplitudes as silence to avoid −∞ noise. */
+const dbOf = (amp: number, ref: number): number => 20 * Math.log10(Math.max(amp, 1e-18) / ref);
+
+const COLS = ["46px", "60px", "56px", "52px"]; // freq · V · dBV · dBc
+
+/** One spectral line as four columns: freq · linear V · absolute dBV · dBc (re f₀). */
+function specRow(cells: [string, string, string, string], header = false): HTMLElement {
+  const r = document.createElement("div");
+  r.style.display = "flex"; r.style.gap = "7px"; r.style.fontSize = "10px"; r.style.lineHeight = "1.5";
+  if (header) r.style.opacity = "0.45";
+  cells.forEach((text, i) => {
+    const s = document.createElement("span");
+    s.textContent = text;
+    s.style.flex = "0 0 auto"; s.style.width = COLS[i]!; s.style.whiteSpace = "nowrap";
+    s.style.textAlign = i === 0 ? "left" : "right";
+    if (i === 0 && !header) s.style.opacity = "0.7";
+    if (i > 0) s.style.fontVariantNumeric = "tabular-nums";
+    r.appendChild(s);
+  });
+  return r;
+}
+
+/** Signal-harmonic spectrum at k·f₀ — linear V, absolute dBV, and dBc (re fundamental). */
+function harmonicRows(box: HTMLElement, harm: number[], f0: number | null): void {
+  const a1 = harm[0] ?? 0;
+  if (!(a1 > 0)) return;
+  box.appendChild(subHeader("signal harmonics"));
+  box.appendChild(specRow(["freq", "V", "dBV", "dBc"], true));
+  for (let k = 0; k < harm.length; k++) {
+    const amp = harm[k]!;
+    const freq = f0 ? formatEng((k + 1) * f0, "Hz") : "h" + (k + 1);
+    box.appendChild(specRow([freq, formatEng(amp, "V"), dbStr(dbOf(amp, 1)), k === 0 ? "0.0" : dbStr(dbOf(amp, a1))]));
+  }
+}
+
+/** Mains-hum spectrum at m·baseF — linear V, absolute dBV, and dBc (re the net's f₀ fundamental). */
+function mainsRows(box: HTMLElement, mains: number[], baseF: number, a1: number): void {
+  box.appendChild(subHeader("mains hum · ×" + baseF + " Hz"));
+  box.appendChild(specRow(["freq", "V", "dBV", "dBc"], true));
+  for (let m = 0; m < mains.length; m++) {
+    const amp = mains[m]!;
+    box.appendChild(specRow([
+      formatEng((m + 1) * baseF, "Hz"), formatEng(amp, "V"),
+      dbStr(dbOf(amp, 1)), a1 > 0 ? dbStr(dbOf(amp, a1)) : "–",
+    ]));
+  }
+}
+
 /** Create one reusable tooltip element appended to `host` (shadow root or document body). */
 export function createSimTooltip(host: HTMLElement | ShadowRoot): SimTooltip {
   const el = document.createElement("div");
@@ -108,13 +182,13 @@ export function createSimTooltip(host: HTMLElement | ShadowRoot): SimTooltip {
   st.zIndex = "9999";
   st.pointerEvents = "none";
   st.display = "none";
-  st.maxWidth = "260px";
+  st.maxWidth = "340px";
   st.padding = "8px 10px";
   st.borderRadius = "8px";
   st.background = "rgba(17, 22, 28, 0.96)";
   st.color = "#e6e8ea";
-  st.font = "12px ui-monospace, SFMono-Regular, Menlo, monospace";
-  st.lineHeight = "1.45";
+  st.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
+  st.lineHeight = "1.4";
   st.boxShadow = "0 4px 16px rgba(0,0,0,0.4)";
   host.appendChild(el);
 
@@ -133,13 +207,15 @@ export function createSimTooltip(host: HTMLElement | ShadowRoot): SimTooltip {
 
   return {
     el,
-    showNet(name, s) {
+    showNet(name, s, ctx) {
       show("net " + name, (box) => {
         statRows(box, "V", s.v, "V");
         if (s.dc != null) box.appendChild(rowEl("V DC bias", formatEng(s.dc, "V")));
-        if (s.thdPct != null) {
+        if (s.thdPct != null && isFinite(s.thdPct)) {
           box.appendChild(rowEl("THD", s.thdPct.toPrecision(3) + " % (" + (s.thdDb ?? 0).toFixed(1) + " dB)"));
         }
+        if (s.harm && s.harm.length) harmonicRows(box, s.harm, ctx?.f0 ?? null);
+        if (s.mains && s.mains.length) mainsRows(box, s.mains, ctx?.mainsF0 ?? MAINS_F0, s.harm?.[0] ?? s.a1 ?? 0);
       });
     },
     showComp(ref, s) {

@@ -11,8 +11,12 @@ The integrated application that ties the other modules together:
 - **Simulation summaries**: upload an LTspice transient `.raw` (+ optional `.op.raw`);
   the app summarizes each net (V min/avg/rms/max/pp, DC bias, THD) and component (current,
   voltage drop, power; transistor Ic/Ib/Ie + β) and **discards the bulk waveform**. Hover
-  any net/component (either side) to see its metrics in a tooltip; the `ƒ directives`
-  button lists the SPICE directives. The summary rides along in the exported HTML.
+  any net/component (either side) to see its metrics in a tooltip; the net tooltip also
+  shows the **signal-harmonic spectrum** (k·f₀, dBV + dBc) and the **mains-hum spectrum**
+  (m·50 Hz ripple). Loading a `.raw` opens a **Process simulation** dialog to toggle THD
+  (with the fundamental f₀, autofilled from `.four`/`.param in_freq`) and ripple (with the
+  mains frequency) on/off. The `ƒ directives` button lists the SPICE directives, and the
+  summary rides along in the exported HTML.
   Optionally **Load .net** (the LTspice SPICE netlist) too: unlabeled nets get
   viewer-invented names (`Net-(C14.1)`) that don't match the `.raw`'s internal node names
   (`V(n008)`), so they'd otherwise show no data; the netlist bridges them by matching each

@@ -364,7 +364,7 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     if (ltId == null) { tip.hide(); return; }
     if (kind === "net") {
       const s = this.simulation.nets[ltId];
-      if (s) { tip.showNet(ltId, s); tip.move(this.hoverXY.x, this.hoverXY.y); return; }
+      if (s) { tip.showNet(ltId, s, { f0: this.simulation.f0, mainsF0: this.simulation.mainsF0 }); tip.move(this.hoverXY.x, this.hoverXY.y); return; }
     } else {
       const s = this.simulation.comps[ltId];
       if (s) { tip.showComp(ltId, s); tip.move(this.hoverXY.x, this.hoverXY.y); return; }

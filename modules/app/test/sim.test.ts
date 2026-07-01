@@ -80,4 +80,72 @@ describe("buildSimSummary", () => {
     const sum = await buildSimSummary(memFile(buf), null, ctx, "synth.raw", {});
     expect(sum.nets["sig"]!.thdPct!).toBeLessThan(0.5);
   });
+
+  it("computes a finite THD when .four requests more harmonics than the display spectrum", async () => {
+    // Regression: nHarm=12 > HARM_N(10) must not index past the 10-entry harm[] array (→ NaN).
+    const buf = synthRaw({ f0, T, N, dc: 0, sig: (t) => Math.sin(2 * Math.PI * f0 * t) + 0.05 * Math.sin(2 * Math.PI * 2 * f0 * t) });
+    const ctx = { nets: [{ name: "sig" }], comps: [], directives: [".four 1000 12 V(sig)"] };
+    const sum = await buildSimSummary(memFile(buf), null, ctx, "synth.raw", {});
+    const sig = sum.nets["sig"]!;
+    expect(Number.isNaN(sig.thdPct!)).toBe(false);
+    expect(sig.thdPct!).toBeCloseTo(5, 0);
+    expect(sig.harm!.length).toBe(10); // display spectrum still capped at 10
+  });
+
+  it("skips THD/harmonics when thdF0 is null, and ripple when mainsF0 is null", async () => {
+    const buf = synthRaw({ f0, T, N, dc: 0, sig: (t) => Math.sin(2 * Math.PI * f0 * t) + 0.1 * Math.sin(2 * Math.PI * 50 * t) });
+    const ctx = { nets: [{ name: "sig" }], comps: [], directives: [".four 1000 9 V(sig)"] };
+
+    const off = await buildSimSummary(memFile(buf), null, ctx, "s.raw", { thdF0: null, mainsF0: null });
+    expect(off.f0).toBeNull();
+    expect(off.nets["sig"]!.harm).toBeUndefined();
+    expect(off.nets["sig"]!.thdPct).toBeUndefined();
+    expect(off.nets["sig"]!.mains).toBeUndefined();
+    expect(off.mainsF0).toBeUndefined();
+
+    // explicit overrides: THD at a forced f0, ripple at 60 Hz
+    const on = await buildSimSummary(memFile(buf), null, ctx, "s.raw", { thdF0: 1000, mainsF0: 60 });
+    expect(on.f0).toBe(1000);
+    expect(on.mainsF0).toBe(60);
+    expect(on.nets["sig"]!.harm!.length).toBe(10);
+    expect(on.nets["sig"]!.mains!.length).toBe(5);
+  });
+
+  it("resolves f0 from .param in_freq when no .four is present", async () => {
+    const buf = synthRaw({ f0, T, N, dc: 0, sig: (t) => Math.sin(2 * Math.PI * f0 * t) });
+    const ctx = { nets: [{ name: "sig" }], comps: [], directives: [".param in_freq=1000", ".tran 1u"] };
+    const sum = await buildSimSummary(memFile(buf), null, ctx, "synth.raw", {});
+    expect(sum.f0).toBe(1000); // fallback active
+    expect(sum.nets["sig"]!.harm!.length).toBe(10);
+  });
+
+  it("reports the signal-harmonic spectrum (dBc) and the 50 Hz mains spectrum (abs)", async () => {
+    // 1 kHz fundamental + 5% 2nd harmonic (2 kHz) + a 0.2 V 50 Hz and 0.1 V 100 Hz "hum".
+    const A = 1, h2 = 0.05, m1 = 0.2, m2 = 0.1;
+    const buf = synthRaw({
+      f0, T, N, dc: 0,
+      sig: (t) =>
+        A * Math.sin(2 * Math.PI * f0 * t) + h2 * Math.sin(2 * Math.PI * 2 * f0 * t) +
+        m1 * Math.sin(2 * Math.PI * 50 * t) + m2 * Math.sin(2 * Math.PI * 100 * t),
+    });
+    const ctx = { nets: [{ name: "sig" }], comps: [], directives: [".four 1000 9 V(sig)"] };
+    const sum = await buildSimSummary(memFile(buf), null, ctx, "synth.raw", {});
+    expect(sum.mainsF0).toBe(50);
+
+    const sig = sum.nets["sig"]!;
+    // signal harmonics: peak amplitudes (V); h1≈A, h2≈0.05, rest ≈ 0.
+    expect(sig.harm!.length).toBe(10);
+    expect(sig.harm![0]).toBeCloseTo(A, 1);
+    expect(sig.harm![1]).toBeCloseTo(h2, 2);
+    expect(sig.harm![2]).toBeLessThan(1e-2);
+    // dBc of the 2nd harmonic ≈ 20·log10(0.05) ≈ -26 dB
+    expect(20 * Math.log10(sig.harm![1]! / sig.harm![0]!)).toBeCloseTo(-26, 0);
+
+    // mains spectrum: 50 Hz and 100 Hz recovered; 150/200/250 ≈ 0. THD (1 kHz harmonics) ignores the hum.
+    expect(sig.mains!.length).toBe(5);
+    expect(sig.mains![0]).toBeCloseTo(m1, 2);
+    expect(sig.mains![1]).toBeCloseTo(m2, 2);
+    expect(sig.mains![2]).toBeLessThan(1e-2);
+    expect(sig.thdPct!).toBeCloseTo(5, 0); // 50/100 Hz are not harmonics of f0 → excluded from THD
+  });
 });

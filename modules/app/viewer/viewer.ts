@@ -159,7 +159,7 @@ async function boot(): Promise<void> {
         : origin === "kpcb" ? store.counterpart("net", "kicad", alias.pcbToSch.get(name) ?? name)
         : store.counterpart("net", "kicad", name);
       const s = ltName ? sim.nets[ltName] : undefined;
-      if (s) { tip.showNet(ltName!, s); tip.move(mx, my); } else tip.hide();
+      if (s) { tip.showNet(ltName!, s, { f0: sim.f0, mainsF0: sim.mainsF0 }); tip.move(mx, my); } else tip.hide();
     };
     const hoverComp = (origin: "lt" | "ksch", ref: string | null): void => {
       if (!ref) return tip.hide();
