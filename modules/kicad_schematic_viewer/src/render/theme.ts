@@ -42,7 +42,7 @@ export const STYLESHEET = `
   --ksv-hover: #c08bff;
 }
 .ksv-root { width: 100%; height: 100%; }
-svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; transform-origin: 0 0; }
+svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
 svg.ksv-panning { cursor: grabbing; }
 
 .ksv-wire { stroke: var(--ksv-wire); stroke-width: 0.22; fill: none; stroke-linecap: round; pointer-events: none; }

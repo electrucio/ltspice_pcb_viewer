@@ -13,36 +13,11 @@ export interface PcbEvents {
   onNetHover?: (name: string | null) => void;
 }
 
-export interface ViewBox {
+interface ViewBox {
   x: number;
   y: number;
   w: number;
   h: number;
-}
-
-/**
- * Compute the committed viewBox for a touch pan/pinch-zoom gesture PHASE, given the phase's
- * frozen starting viewBox `vb0` + element rect, its start point `p0` (rect-relative) and
- * current point `p1` (rect-relative), and the scale factor since the phase started (1 = pure
- * pan). Keeps the content point that was under `p0` mapped to wherever `p1`/scale now are —
- * for a pure pan (scale=1) this reduces algebraically to the incremental per-frame pan formula
- * (`vb.x -= (p1.x-p0.x)/rect.width*vb.w`), so committing once at phase-end instead of on every
- * touchmove produces the exact same final result. Exported (DOM-free) for unit testing.
- */
-export function computeGestureViewBox(
-  vb0: ViewBox,
-  rect: { width: number; height: number },
-  p0: { x: number; y: number },
-  p1: { x: number; y: number },
-  scale: number,
-): ViewBox {
-  const contentAtStart = { x: vb0.x + (p0.x / rect.width) * vb0.w, y: vb0.y + (p0.y / rect.height) * vb0.h };
-  const w = vb0.w / scale, h = vb0.h / scale;
-  return {
-    x: contentAtStart.x - (p1.x / rect.width) * w,
-    y: contentAtStart.y - (p1.y / rect.height) * h,
-    w, h,
-  };
 }
 
 const PAD = 0.06;
@@ -191,67 +166,40 @@ export class PcbController {
     // iOS Safari 12+, which lacks Pointer Events; those are suppressed for touch above).
     // `touch-action: none` (theme) keeps the browser hands-off. A tap fires the same
     // handleClick as a mouse click AND emits a net hover so the sim tooltip shows on touch.
-    //
-    // Live feedback during the gesture is a CSS `transform` PREVIEW on the <svg> itself (cheap,
-    // GPU-compositable, no SVG repaint) computed relative to the current PHASE's frozen start
-    // state — never a live viewBox mutation. The real viewBox is committed once per phase (at
-    // gesture end, or when the finger count changes) via `computeGestureViewBox`.
     const tPos = (t: Touch) => ({ x: t.clientX, y: t.clientY });
     const tMid = (a: Touch, b: Touch) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
     const tDistOf = (a: Touch, b: Touch) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-    const rel = (p: { x: number; y: number }): { x: number; y: number } => {
-      const r = this.rect!;
-      return { x: p.x - r.left, y: p.y - r.top };
-    };
-
     let tMode = 0; // 0 idle, 1 pan/tap, 2 pinch
-    let tStart = { x: 0, y: 0 }; // phase-start anchor point (rect-relative)
-    let tDistStart = 0; // phase-start finger distance (pinch only)
-    let tVb0: ViewBox = this.vb; // frozen viewBox at phase start
-    let tLastP = { x: 0, y: 0 }, tLastScale = 1; // most recent preview state (for commit)
-    let tMoved = false;
+    let tLast = { x: 0, y: 0 }, tStart = { x: 0, y: 0 };
+    let tDist = 0, tMoved = false;
     let tDownHit: { net?: string; ref?: string } = {};
-
-    const previewTransform = (p1: { x: number; y: number }, scale: number): void => {
-      const tx = p1.x - scale * tStart.x, ty = p1.y - scale * tStart.y;
-      this.svg.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
-      tLastP = p1; tLastScale = scale;
-    };
-    const commit = (): void => {
-      this.svg.style.transform = "";
-      this.vb = computeGestureViewBox(tVb0, this.rect!, tStart, tLastP, tLastScale);
-      this.applyViewBox();
-    };
-    const startPan = (p: { x: number; y: number }): void => {
-      tMode = 1; tVb0 = this.vb; tStart = rel(p); tLastP = tStart; tLastScale = 1;
-    };
-    const startPinch = (a: Touch, b: Touch): void => {
-      tMode = 2; tVb0 = this.vb; tStart = rel(tMid(a, b)); tDistStart = tDistOf(a, b); tLastP = tStart; tLastScale = 1;
-    };
-
     this.svg.addEventListener("touchstart", (e) => {
       this.rect = this.svg.getBoundingClientRect();
-      if (tMode !== 0) commit(); // finalize whatever phase was running (e.g. adding a 2nd finger)
-      if (e.touches.length >= 2) { startPinch(e.touches[0]!, e.touches[1]!); tMoved = true; }
-      else if (e.touches.length === 1) { startPan(tPos(e.touches[0]!)); tMoved = false; tDownHit = this.hitFrom(e); }
+      if (e.touches.length >= 2) { tMode = 2; tMoved = true; tDist = tDistOf(e.touches[0]!, e.touches[1]!); tLast = tMid(e.touches[0]!, e.touches[1]!); }
+      else if (e.touches.length === 1) { tMode = 1; tMoved = false; tStart = tLast = tPos(e.touches[0]!); tDownHit = this.hitFrom(e); }
     }, { passive: false });
-
     this.svg.addEventListener("touchmove", (e) => {
       e.preventDefault();
+      const r = this.rect!;
       if (tMode === 1 && e.touches.length === 1) {
-        const p1 = rel(tPos(e.touches[0]!));
-        if (Math.hypot(p1.x - tStart.x, p1.y - tStart.y) > 8) tMoved = true;
-        previewTransform(p1, 1);
+        const p = tPos(e.touches[0]!);
+        if (Math.hypot(p.x - tStart.x, p.y - tStart.y) > 8) tMoved = true;
+        this.vb.x -= ((p.x - tLast.x) / r.width) * this.vb.w;
+        this.vb.y -= ((p.y - tLast.y) / r.height) * this.vb.h;
+        tLast = p;
+        this.scheduleApplyViewBox();
       } else if (tMode === 2 && e.touches.length >= 2) {
         const d = tDistOf(e.touches[0]!, e.touches[1]!);
-        const m = rel(tMid(e.touches[0]!, e.touches[1]!));
-        previewTransform(m, tDistStart > 0 ? d / tDistStart : 1); // fingers apart → scale>1 → zoom in
+        const m = tMid(e.touches[0]!, e.touches[1]!);
+        if (d > 0 && tDist > 0) this.zoomAt(m.x, m.y, tDist / d, r); // fingers apart → factor<1 → zoom in
+        this.vb.x -= ((m.x - tLast.x) / r.width) * this.vb.w;
+        this.vb.y -= ((m.y - tLast.y) / r.height) * this.vb.h;
+        this.scheduleApplyViewBox();
+        tDist = d; tLast = m;
       }
     }, { passive: false });
-
     const tEnd = (e: TouchEvent) => {
       if (e.touches.length === 0) {
-        commit();
         this.rect = null;
         if (tMode === 1 && !tMoved) {
           this.handleClick(tDownHit);
@@ -259,9 +207,9 @@ export class PcbController {
         }
         tMode = 0;
       } else if (e.touches.length === 1) {
-        commit(); // finalize the pinch phase
-        startPan(tPos(e.touches[0]!)); // fresh pan phase anchored to the remaining finger
-        tMoved = true; // this gesture already involved 2 fingers — never a tap
+        // one finger lifted out of a pinch: keep the cached rect (geometry is unaffected),
+        // just re-seed the pan anchor to the remaining finger.
+        tMode = 1; tMoved = true; tStart = tLast = tPos(e.touches[0]!);
       }
     };
     this.svg.addEventListener("touchend", tEnd);
