@@ -15,23 +15,41 @@ export interface Stat {
   pp: number;
 }
 
-/** Mains-hum analysis base frequency (Hz) and harmonic count — single source of truth,
- *  imported by the summary builder so the computed bins and the tooltip labels agree. */
-export const MAINS_F0 = 50;
-export const MAINS_N = 5;
-/** Number of signal harmonics (k·f₀) listed in the spectrum. */
-export const HARM_N = 10;
+// ---- LTspice `.log` results (exact — parsed from the log, not recomputed) ------------
+
+/** One harmonic line from a `.four` Fourier block. */
+export interface FourHarmonic {
+  n: number; // harmonic number (1 = fundamental)
+  freq: number; // Hz
+  amp: number; // Fourier component magnitude (V)
+  norm: number; // normalized to the fundamental (dimensionless; dBc = 20·log10(norm))
+}
+/** A `.four` Fourier analysis block from the `.log` (signal at ~f₀ or mains at ~50 Hz). */
+export interface FourBlock {
+  f0: number; // fundamental (h1) frequency, Hz
+  nPeriods?: number; // N-Period used by LTspice, if reported
+  thdPct?: number; // Total Harmonic Distortion (%)
+  harmonics: FourHarmonic[];
+}
+/** A single `.meas` result. */
+export interface LogMeas {
+  name: string;
+  value: number;
+  unit?: string; // "V" | "A" | "" (inferred from the measured expression)
+}
+export interface NetLog {
+  four?: FourBlock; // signal `.four` (fundamental near the test tone)
+  mains?: FourBlock; // 50 Hz `.four` (mains hum / ripple)
+  meas?: LogMeas[]; // `.meas` results referencing V(this net)
+}
+export interface CompLog {
+  meas?: LogMeas[]; // `.meas` results referencing I(this ref)
+}
 
 export interface NetSim {
   v: Stat;
   dc: number | null; // DC operating-point bias (from .op.raw), else null
-  a1?: number; // fundamental amplitude
-  thdPct?: number;
-  thdDb?: number;
-  /** Peak amplitudes (V) at k·f₀ for k=1..HARM_N (index 0 = fundamental); set only when f₀ known. */
-  harm?: number[];
-  /** Peak amplitudes (V) at m·MAINS_F0 for m=1..MAINS_N (mains hum/ripple); always set. */
-  mains?: number[];
+  log?: NetLog; // exact LTspice `.log` results attached to this net (if a .log was loaded)
 }
 
 export interface CompSim {
@@ -51,17 +69,18 @@ export interface CompSim {
   dcIb?: number;
   dcIe?: number;
   betaDc?: number;
+  log?: CompLog;
 }
 
 export interface SimSummary {
-  f0: number | null; // fundamental used for THD (Hz)
   window: number; // analysis window length T (s)
   nPoints: number;
   source: string; // .raw filename
   directives: string[]; // SPICE directives from the .asc
-  mainsF0?: number; // mains-hum base frequency (Hz) used for the hum spectrum
   nets: Record<string, NetSim>; // keyed by LTspice net name
   comps: Record<string, CompSim>; // keyed by LTspice component ref
+  logSource?: string; // .log filename, once attached
+  logGlobals?: LogMeas[]; // `.meas` results not tied to a specific net/component (PARAM etc.)
 }
 
 const PREFIX: [number, string][] = [
@@ -89,9 +108,7 @@ export function formatEng(v: number | null | undefined, unit: string): string {
 
 export interface SimTooltip {
   el: HTMLElement;
-  /** `f0` (Hz) labels the signal harmonics with their absolute frequencies (k·f₀);
-   *  `mainsF0` (Hz) labels the ripple spectrum (defaults to MAINS_F0). */
-  showNet(name: string, s: NetSim, ctx?: { f0?: number | null; mainsF0?: number }): void;
+  showNet(name: string, s: NetSim): void;
   showComp(ref: string, s: CompSim): void;
   move(clientX: number, clientY: number): void;
   hide(): void;
@@ -148,31 +165,43 @@ function specRow(cells: [string, string, string, string], header = false): HTMLE
   return r;
 }
 
-/** Signal-harmonic spectrum at k·f₀ — linear V, absolute dBV, and dBc (re fundamental). */
-function harmonicRows(box: HTMLElement, harm: number[], f0: number | null): void {
-  const a1 = harm[0] ?? 0;
-  if (!(a1 > 0)) return;
-  box.appendChild(subHeader("signal harmonics"));
+/** A `.four` Fourier table from the `.log`: freq · linear V · absolute dBV · dBc (re fundamental). */
+function fourRows(box: HTMLElement, title: string, block: FourBlock, showThd: boolean): void {
+  box.appendChild(subHeader(title));
   box.appendChild(specRow(["freq", "V", "dBV", "dBc"], true));
-  for (let k = 0; k < harm.length; k++) {
-    const amp = harm[k]!;
-    const freq = f0 ? formatEng((k + 1) * f0, "Hz") : "h" + (k + 1);
-    box.appendChild(specRow([freq, formatEng(amp, "V"), dbStr(dbOf(amp, 1)), k === 0 ? "0.0" : dbStr(dbOf(amp, a1))]));
+  for (const h of block.harmonics) {
+    box.appendChild(specRow([
+      formatEng(h.freq, "Hz"), formatEng(h.amp, "V"),
+      dbStr(dbOf(h.amp, 1)), h.n === 1 ? "0.0" : dbStr(dbOf(h.norm, 1)),
+    ]));
+  }
+  if (showThd && block.thdPct != null && isFinite(block.thdPct)) {
+    box.appendChild(rowEl("THD", block.thdPct.toPrecision(4) + " %"));
   }
 }
 
-/** Mains-hum spectrum at m·baseF — linear V, absolute dBV, and dBc (re the net's f₀ fundamental). */
-function mainsRows(box: HTMLElement, mains: number[], baseF: number, a1: number): void {
-  box.appendChild(subHeader("mains hum · ×" + baseF + " Hz"));
-  box.appendChild(specRow(["freq", "V", "dBV", "dBc"], true));
-  for (let m = 0; m < mains.length; m++) {
-    const amp = mains[m]!;
-    box.appendChild(specRow([
-      formatEng((m + 1) * baseF, "Hz"), formatEng(amp, "V"),
-      dbStr(dbOf(amp, 1)), a1 > 0 ? dbStr(dbOf(amp, a1)) : "–",
-    ]));
+/** A list of `.meas` results (name = value, unit inferred from the measured expression). */
+function measRows(box: HTMLElement, meas: LogMeas[]): void {
+  box.appendChild(subHeader(".meas"));
+  for (const m of meas) {
+    const val = m.unit ? formatEng(m.value, m.unit) : String(+m.value.toPrecision(5));
+    box.appendChild(rowEl(m.name, val));
   }
 }
+
+/** Render the "LTspice .log" section (exact Fourier / ripple / meas), if present. */
+function logSection(box: HTMLElement, log: NetLog | CompLog): void {
+  const h = subHeader("— from LTspice .log —");
+  h.style.opacity = "0.75"; h.style.marginTop = "8px";
+  box.appendChild(h);
+  const net = log as NetLog;
+  if (net.four) fourRows(box, "harmonics · .four @ " + formatEng(net.four.f0, "Hz"), net.four, true);
+  if (net.mains) fourRows(box, "mains ripple · .four @ " + formatEng(net.mains.f0, "Hz"), net.mains, false);
+  if (log.meas && log.meas.length) measRows(box, log.meas);
+}
+
+const hasLog = (log?: NetLog | CompLog): boolean =>
+  !!log && (!!(log as NetLog).four || !!(log as NetLog).mains || !!(log.meas && log.meas.length));
 
 /** Create one reusable tooltip element appended to `host` (shadow root or document body). */
 export function createSimTooltip(host: HTMLElement | ShadowRoot): SimTooltip {
@@ -207,15 +236,11 @@ export function createSimTooltip(host: HTMLElement | ShadowRoot): SimTooltip {
 
   return {
     el,
-    showNet(name, s, ctx) {
+    showNet(name, s) {
       show("net " + name, (box) => {
         statRows(box, "V", s.v, "V");
         if (s.dc != null) box.appendChild(rowEl("V DC bias", formatEng(s.dc, "V")));
-        if (s.thdPct != null && isFinite(s.thdPct)) {
-          box.appendChild(rowEl("THD", s.thdPct.toPrecision(3) + " % (" + (s.thdDb ?? 0).toFixed(1) + " dB)"));
-        }
-        if (s.harm && s.harm.length) harmonicRows(box, s.harm, ctx?.f0 ?? null);
-        if (s.mains && s.mains.length) mainsRows(box, s.mains, ctx?.mainsF0 ?? MAINS_F0, s.harm?.[0] ?? s.a1 ?? 0);
+        if (hasLog(s.log)) logSection(box, s.log!);
       });
     },
     showComp(ref, s) {
@@ -229,6 +254,7 @@ export function createSimTooltip(host: HTMLElement | ShadowRoot): SimTooltip {
         if (s.betaDc != null) box.appendChild(rowEl("β (DC)", s.betaDc.toPrecision(3)));
         if (s.dcI != null) box.appendChild(rowEl("I DC", formatEng(s.dcI, "A")));
         if (s.dcVdrop != null) box.appendChild(rowEl("Vdrop DC", formatEng(s.dcVdrop, "V")));
+        if (hasLog(s.log)) logSection(box, s.log!);
       });
     },
     move(clientX, clientY) {

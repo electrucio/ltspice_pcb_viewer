@@ -96,14 +96,24 @@ The payload's `simulation` field carries the LTspice sim summary (below).
 component metrics, and **discard the waveform**. `modules/app/src/sim/raw.ts` reads the
 UTF-16LE header (`Binary:\n`; axis float64 + rest float32) and **streams point-aligned
 slices** (peak RAM ≈ one chunk); `build.ts#buildSimSummary` does one pass computing
-time-weighted V/I/Vdrop/P stats and a windowed-DFT **THD** per net (fundamental from
-`.param in_freq`/`.four`, resolved by `resolveFundamental`). The model + a cursor
-tooltip live in `modules/ltspice_kicad_mapper/src/sim/summary.ts` (`SimSummary`,
-`formatEng`, `createSimTooltip`) — keyed on **LTspice** ids; the mapper resolves a
-hovered KiCad net/component to its LTspice counterpart (store + aliases) before lookup.
-The summary (≈tens of KB) is baked into the export `simulation` field, so the read-only
-viewer shows the same hover tooltip + a SPICE-directives panel offline. Validated against
-the real 183 MB `AudioAmpCompl-40W.raw` (≈0.6 s, streamed) and a synthetic-`.raw` unit test.
+**time-weighted V/I/Vdrop/P stats** per net/component. Harmonics/THD/ripple are **not**
+recomputed here — the `.raw` is float32, so a DFT can't match LTspice's precision (it
+invents phantom harmonics on clean nodes). The model + a cursor tooltip live in
+`modules/ltspice_kicad_mapper/src/sim/summary.ts` (`SimSummary`, `formatEng`,
+`createSimTooltip`) — keyed on **LTspice** ids; the mapper resolves a hovered KiCad
+net/component to its LTspice counterpart (store + aliases) before lookup. The summary
+(≈tens of KB) is baked into the export `simulation` field, so the read-only viewer shows
+the same hover tooltip + a SPICE-directives panel offline.
+
+*Exact harmonics/THD/ripple — the `.log`.* LTspice already computes these precisely and
+writes them to the `.log`. Optionally loading it, `sim/logfile.ts` (`parseLog`/`mergeLog`,
+UTF-16/UTF-8) extracts the `.four` blocks (harmonics + THD; signal at ~f₀ and mains at
+≤120 Hz classified separately) and the `.meas` results (node from `v(…)`, ref from `i(…)`,
+unit inferred), and **merges** them onto the summary (`NetSim.log`/`CompSim.log`) — matched
+case-insensitively, anonymous nets resolved through the inverse of the `.net` alias. The
+tooltip renders a **"from LTspice .log"** section (Fourier table + THD, ripple table, meas
+list). Validated against the real 183 MB `AudioAmpCompl-40W.raw` and its `.log` (speaker THD
+0.247%, preamp_out 0.0127%, n002 100 Hz ripple 12.87 mV — LTspice's own numbers).
 
 *Anonymous-net bridge.* An `.asc` only names nets where a flag/label is dropped; for the
 rest, the LTspice netlister invents `N001`/`N002`/… (→ `V(n001)` in the `.raw`) while our

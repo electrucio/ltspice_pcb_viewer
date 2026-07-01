@@ -1,12 +1,14 @@
 /**
  * Build a compact SimSummary from an LTspice transient `.raw` (+ optional `.op.raw`),
- * using the LTspice schematic context (net names, components + connected nets, directives).
- * One streaming pass over the transient computes time-weighted V/I/Vdrop/P stats and a
- * windowed DFT (THD) per net; the bulk waveform is never retained.
+ * using the LTspice schematic context (net names, components + connected nets).
+ * One streaming pass over the transient computes time-weighted V/I/Vdrop/P stats per net
+ * and component; the bulk waveform is never retained. Harmonics/THD/ripple are NOT computed
+ * here (float32 `.raw` can't match LTspice's precision) — those come from the `.log`
+ * (see `logfile.ts`) and are merged onto this summary.
  */
 
 import { readHeader, streamPoints, readSinglePoint, readVar, type RawFile, type RawHeader } from "./raw.js";
-import { MAINS_F0, MAINS_N, HARM_N, type SimSummary, type NetSim, type CompSim, type Stat } from "../../../ltspice_kicad_mapper/src/sim/summary.js";
+import type { SimSummary, NetSim, CompSim, Stat } from "../../../ltspice_kicad_mapper/src/sim/summary.js";
 
 export interface LtComp { ref: string; value: string; nets: string[] }
 export interface LtCtx {
@@ -35,43 +37,9 @@ class Acc {
 
 const compType = (ref: string): string => (ref.match(/^[A-Za-z]+/)?.[0] ?? "").toUpperCase().charAt(0);
 
-/** Resolve the THD fundamental + harmonic count from `.param`/`.four` directives. */
-export function resolveFundamental(directives: string[]): { f0: number | null; nHarm: number } {
-  const params = new Map<string, number>();
-  for (const d of directives) {
-    if (/^\.param\b/i.test(d)) {
-      for (const m of d.matchAll(/(\w+)\s*=\s*([-+0-9.eE]+)/g)) {
-        const v = parseFloat(m[2]!);
-        if (isFinite(v)) params.set(m[1]!.toLowerCase(), v);
-      }
-    }
-  }
-  let f0: number | null = null;
-  let nHarm = 9;
-  for (const d of directives) {
-    const m = d.match(/^\.four\s+(\S+)\s+(\d+)?/i);
-    if (!m) continue;
-    const tok = m[1]!.replace(/[{}]/g, "");
-    const f = parseFloat(tok);
-    f0 = isFinite(f) ? f : params.get(tok.toLowerCase()) ?? null;
-    if (m[2]) nHarm = Math.min(parseInt(m[2], 10), 30);
-    if (f0) break;
-  }
-  // Fallback when there's no `.four` directive: use a conventional test-tone param so the
-  // harmonic spectrum / THD still resolve (the amp's `.asc` sets `.param in_freq=1000`).
-  if (f0 == null) f0 = params.get("in_freq") ?? params.get("freq") ?? params.get("f0") ?? params.get("fin") ?? null;
-  return { f0, nHarm };
-}
-
 export interface BuildOpts {
   onProgress?: (frac: number) => void;
   pointsPerChunk?: number;
-  /** THD + signal-harmonic fundamental (Hz). `undefined` → auto-resolve from directives;
-   *  `null` → skip THD/harmonics entirely; a number → use it. */
-  thdF0?: number | null;
-  /** Ripple/mains-hum base frequency (Hz). `undefined` → default (MAINS_F0); `null` → skip
-   *  the ripple spectrum; a number → use it. */
-  mainsF0?: number | null;
 }
 
 export async function buildSimSummary(
@@ -96,29 +64,17 @@ export async function buildSimSummary(
     return v == null ? null : v;
   };
 
-  const auto = resolveFundamental(ctx.directives);
-  const f0 = opts.thdF0 === null ? null : (opts.thdF0 ?? auto.f0); // null → THD/harmonics off
-  const nHarm = auto.nHarm;
-  const mainsBase = opts.mainsF0 === null ? null : (opts.mainsF0 ?? MAINS_F0); // null → ripple off
   const needed = new Set<number>();
   const vi = (name: string): number | undefined => idx.get(name.toLowerCase());
 
   // --- nets ---
-  // Signal-harmonic DFT bins go up to HARM_N (≥ nHarm) so the displayed spectrum reaches the
-  // 10th even when `.four` (or its default) asks for fewer; THD still uses 2..nHarm. The mains
-  // bins (re/im at m·MAINS_F0) are independent of f₀ and accumulated for every net.
-  const NH = Math.max(nHarm, HARM_N);
-  interface NetAcc { name: string; vi: number; acc: Acc; re: Float64Array; im: Float64Array; reM: Float64Array; imM: Float64Array }
+  interface NetAcc { name: string; vi: number; acc: Acc }
   const netAccs: NetAcc[] = [];
   for (const n of ctx.nets) {
     const v = vi("v(" + node(n.name) + ")");
     if (v == null) continue;
     needed.add(v);
-    netAccs.push({
-      name: n.name, vi: v, acc: new Acc(),
-      re: new Float64Array(NH + 1), im: new Float64Array(NH + 1),
-      reM: new Float64Array(MAINS_N + 1), imM: new Float64Array(MAINS_N + 1),
-    });
+    netAccs.push({ name: n.name, vi: v, acc: new Acc() });
   }
 
   // --- components ---
@@ -161,11 +117,7 @@ export async function buildSimSummary(
   // --- streaming pass ---
   const vals = new Float64Array(hdr.nVars);
   const neededList = [...needed];
-  const w = f0 ? 2 * Math.PI * f0 : 0;
-  const wM = mainsBase ? 2 * Math.PI * mainsBase : 0;
   let prevT = 0, firstT = NaN, lastT = 0, started = false;
-  const cosK = new Float64Array(NH + 1), sinK = new Float64Array(NH + 1);
-  const cosM = new Float64Array(MAINS_N + 1), sinM = new Float64Array(MAINS_N + 1);
 
   await streamPoints(transient, hdr, (t, dv, base) => {
     for (const i of neededList) vals[i] = readVar(hdr, dv, base, i);
@@ -174,16 +126,6 @@ export async function buildSimSummary(
     prevT = t; lastT = t;
 
     for (const na of netAccs) na.acc.add(vals[na.vi]!, dt);
-    if (dt > 0) {
-      // Precompute trig once per point (reused across all nets); signal bins only if f₀ known.
-      if (w) for (let k = 1; k <= NH; k++) { const a = w * k * t; cosK[k] = Math.cos(a); sinK[k] = Math.sin(a); }
-      if (wM) for (let m = 1; m <= MAINS_N; m++) { const a = wM * m * t; cosM[m] = Math.cos(a); sinM[m] = Math.sin(a); }
-      for (const na of netAccs) {
-        const x = vals[na.vi]! * dt;
-        if (w) for (let k = 1; k <= NH; k++) { na.re[k]! += x * cosK[k]!; na.im[k]! += x * sinK[k]!; }
-        if (wM) for (let m = 1; m <= MAINS_N; m++) { na.reM[m]! += x * cosM[m]!; na.imM[m]! += x * sinM[m]!; }
-      }
-    }
     for (const ca of compAccs) {
       if (ca.i) ca.i.add(vals[ca.iVi!]!, dt);
       if (ca.vdrop) {
@@ -204,28 +146,7 @@ export async function buildSimSummary(
   // --- finalize ---
   const nets: Record<string, NetSim> = {};
   for (const na of netAccs) {
-    const ns: NetSim = { v: na.acc.stat(T), dc: opV(na.name) };
-    if (wM && T > 0) {
-      const mains: number[] = [];
-      for (let m = 1; m <= MAINS_N; m++) mains.push((2 / T) * Math.hypot(na.reM[m]!, na.imM[m]!));
-      ns.mains = mains;
-    }
-    if (w && T > 0) {
-      const amp = (k: number): number => (2 / T) * Math.hypot(na.re[k]!, na.im[k]!);
-      const harm: number[] = []; // displayed spectrum (first HARM_N)
-      for (let k = 1; k <= HARM_N; k++) harm.push(amp(k));
-      const a1 = amp(1);
-      // THD uses the full requested harmonic count (nHarm, may exceed HARM_N) straight from
-      // the DFT bins — never index past the truncated display array.
-      let sumSq = 0;
-      for (let k = 2; k <= nHarm; k++) sumSq += amp(k) ** 2;
-      if (a1 > 1e-12) {
-        const thd = Math.sqrt(sumSq) / a1;
-        ns.a1 = a1; ns.thdPct = thd * 100; ns.thdDb = 20 * Math.log10(Math.max(thd, 1e-12));
-      }
-      ns.harm = harm;
-    }
-    nets[na.name] = ns;
+    nets[na.name] = { v: na.acc.stat(T), dc: opV(na.name) };
   }
 
   const comps: Record<string, CompSim> = {};
@@ -248,7 +169,7 @@ export async function buildSimSummary(
     comps[ca.ref] = cs;
   }
 
-  return { f0, window: T, nPoints: hdr.nPoints, source, directives: ctx.directives, mainsF0: mainsBase ?? undefined, nets, comps };
+  return { window: T, nPoints: hdr.nPoints, source, directives: ctx.directives, nets, comps };
 }
 
 function opCurrent(opMap: Map<string, number> | null, key: string): number | undefined {
