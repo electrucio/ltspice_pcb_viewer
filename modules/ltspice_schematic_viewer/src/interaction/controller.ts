@@ -30,6 +30,12 @@ export class ViewerController {
   private last = { x: 0, y: 0 };
   private hoverKey: string | null = null;
   private downHit: { net?: string; ref?: string } = {};
+  // Cached across an active gesture (set on down/start, cleared on up/end) so pan/zoom never
+  // calls getBoundingClientRect() more than once per gesture — repeated calls force a
+  // synchronous layout flush on every move event, which is the main cause of pan/pinch lag on
+  // older devices (e.g. iOS 12 Safari). Falls back to a fresh read when no gesture is active.
+  private rect: DOMRect | null = null;
+  private rafId: number | null = null;
 
   constructor(
     private readonly root: HTMLElement,
@@ -49,6 +55,16 @@ export class ViewerController {
     this.svg.setAttribute("viewBox", `${this.vb.x} ${this.vb.y} ${this.vb.w} ${this.vb.h}`);
   }
 
+  /** Coalesce viewBox writes to at most one per animation frame — multiple move events
+   *  between two frames (common on a fast pinch/pan) collapse into a single paint. */
+  private scheduleApplyViewBox(): void {
+    if (this.rafId != null) return;
+    this.rafId = requestAnimationFrame(() => {
+      this.rafId = null;
+      this.applyViewBox();
+    });
+  }
+
   fit(target?: BBox): void {
     const b = target ?? this.bbox;
     const w = Math.max(b.maxX - b.minX, 1);
@@ -59,22 +75,21 @@ export class ViewerController {
     this.applyViewBox();
   }
 
-  private clientToUser(clientX: number, clientY: number): { x: number; y: number } {
-    const rect = this.svg.getBoundingClientRect();
+  private clientToUser(clientX: number, clientY: number, rect: DOMRect): { x: number; y: number } {
     return {
       x: this.vb.x + ((clientX - rect.left) / rect.width) * this.vb.w,
       y: this.vb.y + ((clientY - rect.top) / rect.height) * this.vb.h,
     };
   }
 
-  private zoomAt(clientX: number, clientY: number, factor: number): void {
-    const before = this.clientToUser(clientX, clientY);
+  private zoomAt(clientX: number, clientY: number, factor: number, rect: DOMRect): void {
+    const before = this.clientToUser(clientX, clientY, rect);
     this.vb.w *= factor;
     this.vb.h *= factor;
-    const after = this.clientToUser(clientX, clientY);
+    const after = this.clientToUser(clientX, clientY, rect);
     this.vb.x += before.x - after.x;
     this.vb.y += before.y - after.y;
-    this.applyViewBox();
+    this.scheduleApplyViewBox();
   }
 
   // ---- input -------------------------------------------------------------
@@ -82,7 +97,7 @@ export class ViewerController {
   private attach(): void {
     this.svg.addEventListener("wheel", (e) => {
       e.preventDefault();
-      this.zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1.1 : 1 / 1.1);
+      this.zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1.1 : 1 / 1.1, this.rect ?? this.svg.getBoundingClientRect());
     }, { passive: false });
 
     this.svg.addEventListener("pointerdown", (e) => {
@@ -90,6 +105,7 @@ export class ViewerController {
       this.dragging = true;
       this.moved = false;
       this.last = { x: e.clientX, y: e.clientY };
+      this.rect = this.svg.getBoundingClientRect();
       // capture the hit NOW: setPointerCapture redirects the later pointerup to
       // the <svg>, so its composedPath would no longer include the clicked item.
       this.downHit = this.hitFrom(e);
@@ -103,11 +119,11 @@ export class ViewerController {
         const dx = e.clientX - this.last.x;
         const dy = e.clientY - this.last.y;
         if (Math.abs(dx) + Math.abs(dy) > 2) this.moved = true;
-        const rect = this.svg.getBoundingClientRect();
+        const rect = this.rect!;
         this.vb.x -= (dx / rect.width) * this.vb.w;
         this.vb.y -= (dy / rect.height) * this.vb.h;
         this.last = { x: e.clientX, y: e.clientY };
-        this.applyViewBox();
+        this.scheduleApplyViewBox();
       } else {
         this.handleHover(e);
       }
@@ -116,6 +132,7 @@ export class ViewerController {
     const end = () => {
       if (this.dragging && !this.moved) this.handleClick(this.downHit);
       this.dragging = false;
+      this.rect = null;
       this.svg.classList.remove("ksv-panning");
     };
     this.svg.addEventListener("pointerup", end);
@@ -135,31 +152,33 @@ export class ViewerController {
     let tDist = 0, tMoved = false;
     let tDownHit: { net?: string; ref?: string } = {};
     this.svg.addEventListener("touchstart", (e) => {
+      this.rect = this.svg.getBoundingClientRect();
       if (e.touches.length >= 2) { tMode = 2; tMoved = true; tDist = tDistOf(e.touches[0]!, e.touches[1]!); tLast = tMid(e.touches[0]!, e.touches[1]!); }
       else if (e.touches.length === 1) { tMode = 1; tMoved = false; tStart = tLast = tPos(e.touches[0]!); tDownHit = this.hitFrom(e); }
     }, { passive: false });
     this.svg.addEventListener("touchmove", (e) => {
       e.preventDefault();
-      const rect = this.svg.getBoundingClientRect();
+      const rect = this.rect!;
       if (tMode === 1 && e.touches.length === 1) {
         const p = tPos(e.touches[0]!);
         if (Math.hypot(p.x - tStart.x, p.y - tStart.y) > 8) tMoved = true;
         this.vb.x -= ((p.x - tLast.x) / rect.width) * this.vb.w;
         this.vb.y -= ((p.y - tLast.y) / rect.height) * this.vb.h;
         tLast = p;
-        this.applyViewBox();
+        this.scheduleApplyViewBox();
       } else if (tMode === 2 && e.touches.length >= 2) {
         const d = tDistOf(e.touches[0]!, e.touches[1]!);
         const m = tMid(e.touches[0]!, e.touches[1]!);
-        if (d > 0 && tDist > 0) this.zoomAt(m.x, m.y, tDist / d); // fingers apart → factor<1 → zoom in
+        if (d > 0 && tDist > 0) this.zoomAt(m.x, m.y, tDist / d, rect); // fingers apart → factor<1 → zoom in
         this.vb.x -= ((m.x - tLast.x) / rect.width) * this.vb.w;
         this.vb.y -= ((m.y - tLast.y) / rect.height) * this.vb.h;
-        this.applyViewBox();
+        this.scheduleApplyViewBox();
         tDist = d; tLast = m;
       }
     }, { passive: false });
     const tEnd = (e: TouchEvent) => {
       if (e.touches.length === 0) {
+        this.rect = null;
         if (tMode === 1 && !tMoved) {
           this.handleClick(tDownHit);
           if (tDownHit.net) this.events.onNetHover?.(tDownHit.net);
@@ -167,7 +186,11 @@ export class ViewerController {
           else this.events.onNetHover?.(null);
         }
         tMode = 0;
-      } else if (e.touches.length === 1) { tMode = 1; tMoved = true; tStart = tLast = tPos(e.touches[0]!); }
+      } else if (e.touches.length === 1) {
+        // one finger lifted out of a pinch: keep the cached rect (geometry is unaffected),
+        // just re-seed the pan anchor to the remaining finger.
+        tMode = 1; tMoved = true; tStart = tLast = tPos(e.touches[0]!);
+      }
     };
     this.svg.addEventListener("touchend", tEnd);
     this.svg.addEventListener("touchcancel", tEnd);

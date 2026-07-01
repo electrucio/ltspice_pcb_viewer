@@ -30,6 +30,12 @@ export class PcbController {
   private downHit: { net?: string; ref?: string } = {};
   private mirrored = false;
   private rotation = 0; // 0 | 90 | 180 | 270 (degrees, clockwise)
+  // Cached across an active gesture (set on down/start, cleared on up/end) so pan/zoom never
+  // calls getBoundingClientRect() more than once per gesture — repeated calls force a
+  // synchronous layout flush on every move event, which is the main cause of pan/pinch lag on
+  // older devices (e.g. iOS 12 Safari). Falls back to a fresh read when no gesture is active.
+  private rect: DOMRect | null = null;
+  private rafId: number | null = null;
 
   constructor(
     private readonly root: HTMLElement,
@@ -47,6 +53,16 @@ export class PcbController {
 
   private applyViewBox(): void {
     this.svg.setAttribute("viewBox", `${this.vb.x} ${this.vb.y} ${this.vb.w} ${this.vb.h}`);
+  }
+
+  /** Coalesce viewBox writes to at most one per animation frame — multiple move events
+   *  between two frames (common on a fast pinch/pan) collapse into a single paint. */
+  private scheduleApplyViewBox(): void {
+    if (this.rafId != null) return;
+    this.rafId = requestAnimationFrame(() => {
+      this.rafId = null;
+      this.applyViewBox();
+    });
   }
 
   private center(): { cx: number; cy: number } {
@@ -95,19 +111,18 @@ export class PcbController {
     if (g) g.style.display = visible ? "" : "none";
   }
 
-  private clientToUser(cx: number, cy: number): { x: number; y: number } {
-    const r = this.svg.getBoundingClientRect();
+  private clientToUser(cx: number, cy: number, r: DOMRect): { x: number; y: number } {
     return { x: this.vb.x + ((cx - r.left) / r.width) * this.vb.w, y: this.vb.y + ((cy - r.top) / r.height) * this.vb.h };
   }
 
-  private zoomAt(cx: number, cy: number, factor: number): void {
-    const before = this.clientToUser(cx, cy);
+  private zoomAt(cx: number, cy: number, factor: number, r: DOMRect): void {
+    const before = this.clientToUser(cx, cy, r);
     this.vb.w *= factor;
     this.vb.h *= factor;
-    const after = this.clientToUser(cx, cy);
+    const after = this.clientToUser(cx, cy, r);
     this.vb.x += before.x - after.x;
     this.vb.y += before.y - after.y;
-    this.applyViewBox();
+    this.scheduleApplyViewBox();
   }
 
   // ---- input -------------------------------------------------------------
@@ -115,7 +130,7 @@ export class PcbController {
   private attach(): void {
     this.svg.addEventListener("wheel", (e) => {
       e.preventDefault();
-      this.zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1.1 : 1 / 1.1);
+      this.zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1.1 : 1 / 1.1, this.rect ?? this.svg.getBoundingClientRect());
     }, { passive: false });
 
     this.svg.addEventListener("pointerdown", (e) => {
@@ -123,6 +138,7 @@ export class PcbController {
       this.dragging = true;
       this.moved = false;
       this.last = { x: e.clientX, y: e.clientY };
+      this.rect = this.svg.getBoundingClientRect();
       this.downHit = this.hitFrom(e);
       this.svg.classList.add("pcb-panning");
       this.svg.setPointerCapture(e.pointerId);
@@ -132,15 +148,16 @@ export class PcbController {
       if (!this.dragging) { this.events.onNetHover?.(this.hitFrom(e).net ?? null); return; }
       const dx = e.clientX - this.last.x, dy = e.clientY - this.last.y;
       if (Math.abs(dx) + Math.abs(dy) > 2) this.moved = true;
-      const r = this.svg.getBoundingClientRect();
+      const r = this.rect!;
       this.vb.x -= (dx / r.width) * this.vb.w;
       this.vb.y -= (dy / r.height) * this.vb.h;
       this.last = { x: e.clientX, y: e.clientY };
-      this.applyViewBox();
+      this.scheduleApplyViewBox();
     });
     const end = () => {
       if (this.dragging && !this.moved) this.handleClick(this.downHit);
       this.dragging = false;
+      this.rect = null;
       this.svg.classList.remove("pcb-panning");
     };
     this.svg.addEventListener("pointerup", end);
@@ -157,37 +174,43 @@ export class PcbController {
     let tDist = 0, tMoved = false;
     let tDownHit: { net?: string; ref?: string } = {};
     this.svg.addEventListener("touchstart", (e) => {
+      this.rect = this.svg.getBoundingClientRect();
       if (e.touches.length >= 2) { tMode = 2; tMoved = true; tDist = tDistOf(e.touches[0]!, e.touches[1]!); tLast = tMid(e.touches[0]!, e.touches[1]!); }
       else if (e.touches.length === 1) { tMode = 1; tMoved = false; tStart = tLast = tPos(e.touches[0]!); tDownHit = this.hitFrom(e); }
     }, { passive: false });
     this.svg.addEventListener("touchmove", (e) => {
       e.preventDefault();
-      const r = this.svg.getBoundingClientRect();
+      const r = this.rect!;
       if (tMode === 1 && e.touches.length === 1) {
         const p = tPos(e.touches[0]!);
         if (Math.hypot(p.x - tStart.x, p.y - tStart.y) > 8) tMoved = true;
         this.vb.x -= ((p.x - tLast.x) / r.width) * this.vb.w;
         this.vb.y -= ((p.y - tLast.y) / r.height) * this.vb.h;
         tLast = p;
-        this.applyViewBox();
+        this.scheduleApplyViewBox();
       } else if (tMode === 2 && e.touches.length >= 2) {
         const d = tDistOf(e.touches[0]!, e.touches[1]!);
         const m = tMid(e.touches[0]!, e.touches[1]!);
-        if (d > 0 && tDist > 0) this.zoomAt(m.x, m.y, tDist / d); // fingers apart → factor<1 → zoom in
+        if (d > 0 && tDist > 0) this.zoomAt(m.x, m.y, tDist / d, r); // fingers apart → factor<1 → zoom in
         this.vb.x -= ((m.x - tLast.x) / r.width) * this.vb.w;
         this.vb.y -= ((m.y - tLast.y) / r.height) * this.vb.h;
-        this.applyViewBox();
+        this.scheduleApplyViewBox();
         tDist = d; tLast = m;
       }
     }, { passive: false });
     const tEnd = (e: TouchEvent) => {
       if (e.touches.length === 0) {
+        this.rect = null;
         if (tMode === 1 && !tMoved) {
           this.handleClick(tDownHit);
           this.events.onNetHover?.(tDownHit.net ?? null);
         }
         tMode = 0;
-      } else if (e.touches.length === 1) { tMode = 1; tMoved = true; tStart = tLast = tPos(e.touches[0]!); }
+      } else if (e.touches.length === 1) {
+        // one finger lifted out of a pinch: keep the cached rect (geometry is unaffected),
+        // just re-seed the pan anchor to the remaining finger.
+        tMode = 1; tMoved = true; tStart = tLast = tPos(e.touches[0]!);
+      }
     };
     this.svg.addEventListener("touchend", tEnd);
     this.svg.addEventListener("touchcancel", tEnd);
