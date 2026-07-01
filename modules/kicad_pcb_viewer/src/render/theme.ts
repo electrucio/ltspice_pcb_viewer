@@ -21,7 +21,7 @@ export const STYLESHEET = `
   font-family: ui-sans-serif, system-ui, sans-serif;
 }
 .pcb-root { width: 100%; height: 100%; }
-svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; transform-origin: 0 0; }
 svg.pcb-panning { cursor: grabbing; }
 
 .pcb-board { fill: var(--pcb-board); stroke: none; }
