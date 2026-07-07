@@ -34,8 +34,22 @@ Current status:
   model, but referenced at 25 °C where Saturn/IACS use 20 °C — our API takes T
   explicitly). Remaining M0 slices land with their solvers: Hammerstad–Jensen/Wheeler
   (M5), fringing C (M6), Grover/via-L/Bessel (M7).
-- **M3–M8** — not started. Next: M4 DC-resistance FEM (its oracle now exists); mesh
-  prerequisites (pad-terminal tagging, refinement levels) still gate it.
+- **M4 (DC-resistance FEM)** — `modules/solver_rdc`, working. Terminal support
+  landed in `pcb_mesh` first (`buildTerminalMesh`): pads/vias become mesh-conforming
+  equipotential HOLES (inset ~20 µm so simplification can't make them cross the
+  boundary; swallowed drills handled; overlapping same-net pads merged; failures
+  reported, never silent) whose ring vertices are the tagged terminal sets — no
+  kernel change needed (holes are just odd-winding rings). Solver: linear-triangle
+  sheet-conductance FEM per layer, cross-layer supernodes for THT pads/vias (barrel R
+  shorted in v1 — lumped upgrade noted), Dirichlet pair solve, Jacobi-CG with
+  reported residual + current-conservation check. 8 acceptance tests vs the M0
+  oracle: straight strip ρL/(Wt) <0.5%, **L-bend re-derives Jaeger's 0.56-square
+  corner**, reciprocity, temperature scaling, refinement stability, and on the
+  poweramp a pad pair disconnected on B.Cu alone solving finite through THT/via
+  stitching. Measured: /POW1 R2.1↔R9.1 = 3.80 mΩ (≈ counting-squares 3.7 mΩ).
+- **M3, M5–M8** — not started. Next: UI integration ("click two pads → R ± err"),
+  then Richardson error bars (needs the refinement-level harness), lumped via R,
+  stackup parsing (M5 prerequisite).
 
 ## 2. Module: `modules/pcb_mesh` (TypeScript)
 

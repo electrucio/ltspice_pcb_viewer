@@ -38,6 +38,8 @@ export {
 } from "./mesh/triangulate.js";
 export { triangulateQuality } from "./mesh/delaunay.js";
 export { initRuppert, ruppertReady, triangulateRuppert, RUPPERT_MIN_ANGLE_DEG } from "./mesh/ruppert.js";
+export { buildTerminalMesh } from "./mesh/terminals.js";
+export type { Terminal, TerminalMesh, TerminalMeshOptions } from "./mesh/terminals.js";
 export type { RawMesh } from "./mesh/triangulate.js";
 export { ringArea, multiPolygonArea } from "./types.js";
 export type {

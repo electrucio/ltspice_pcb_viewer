@@ -1,0 +1,193 @@
+/**
+ * DC resistance of a net between two terminals, solved on the real copper geometry.
+ *
+ * Model: each copper layer of the net is a 2D sheet-conductance FEM domain (mesh from
+ * pcb_mesh's buildTerminalMesh — pads/vias are equipotential terminal holes). Layers
+ * couple through supernodes: every terminal id that appears on several layers (THT
+ * pads, vias) has its vertex sets SHORTED across layers. Via barrel resistance
+ * (~1 mΩ, see analytic_models) is neglected in v1 — flagged as an upgrade, not hidden.
+ *
+ * Every result carries the achieved CG residual; the caller must not trust a
+ * stagnated solve (spec: "the tool knows when it doesn't know").
+ */
+
+import type { Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
+import { copperLayers } from "../../pcb_mesh/src/outline/copper.js";
+import { buildTerminalMesh, type TerminalMeshOptions } from "../../pcb_mesh/src/mesh/terminals.js";
+import { sheetResistance } from "../../analytic_models/src/index.js";
+import { assembleStiffness, conjugateGradient, UnionFind, type SparseRows } from "./fem.js";
+
+export interface SolveOptions extends TerminalMeshOptions {
+  /** copper thickness, METERS (default 35e-6 — 1 oz; stackup parsing is future work) */
+  copperThicknessM?: number;
+  /** °C for the resistivity model (default 20) */
+  tempC?: number;
+  /** CG relative-residual tolerance (default 1e-12) */
+  tolerance?: number;
+}
+
+export interface SolveResult {
+  /** Ω between the two terminals */
+  resistance: number;
+  /** achieved relative residual of the CG solve — check it! */
+  relResidual: number;
+  iterations: number;
+  /** free DOFs actually solved */
+  dofs: number;
+  /** terminal ids in the connected system (after cross-layer merging) */
+  terminals: string[];
+  layers: string[];
+  /** terminals pcb_mesh could not constrain safely (from its report) */
+  skippedTerminals: string[];
+  /** |I_A + I_B| / |I_A| — current conservation check */
+  conservationError: number;
+}
+
+interface LayerBlock {
+  layer: string;
+  vertices: Float64Array;
+  triangles: Uint32Array;
+  offset: number;
+  terminals: Array<{ id: string; refs: string[]; vertexIndices: number[] }>;
+}
+
+/** Does `query` name this terminal? Accepts the merged id or any member ref. */
+function matches(t: { id: string; refs: string[] }, query: string): boolean {
+  return t.id === query || t.refs.includes(query);
+}
+
+export function solveNetResistance(
+  pcb: Pcb,
+  net: string,
+  terminalA: string,
+  terminalB: string,
+  options?: SolveOptions,
+): SolveResult {
+  const thickness = options?.copperThicknessM ?? 35e-6;
+  const gSheet = 1 / sheetResistance(thickness, options?.tempC);
+
+  // 1) terminal meshes per layer
+  const blocks: LayerBlock[] = [];
+  const skippedTerminals: string[] = [];
+  let offset = 0;
+  const layers = options?.layers ?? copperLayers(pcb);
+  for (const layer of layers) {
+    const tm = buildTerminalMesh(pcb, layer, net, { ...options, layers: undefined });
+    if (!tm) continue;
+    skippedTerminals.push(...tm.skipped.map((id) => `${layer}/${id}`));
+    blocks.push({
+      layer,
+      vertices: tm.mesh.vertices,
+      triangles: tm.mesh.triangles,
+      offset,
+      terminals: tm.terminals,
+    });
+    offset += tm.mesh.vertices.length / 2;
+  }
+  const total = offset;
+  if (!blocks.length) throw new Error(`net "${net}" has no copper on ${layers.join(", ")}`);
+
+  // 2) supernodes: terminal vertices merge within a layer; same id merges across layers
+  const uf = new UnionFind(total);
+  const rootByTerminalId = new Map<string, number>();
+  const terminalInfo = new Map<string, { refs: string[] }>();
+  for (const b of blocks) {
+    for (const t of b.terminals) {
+      if (!t.vertexIndices.length) continue;
+      const first = b.offset + t.vertexIndices[0]!;
+      for (const vi of t.vertexIndices) uf.union(b.offset + vi, first);
+      const existing = rootByTerminalId.get(t.id);
+      if (existing !== undefined) uf.union(first, existing);
+      else rootByTerminalId.set(t.id, first);
+      const info = terminalInfo.get(t.id) ?? { refs: [] };
+      info.refs.push(...t.refs);
+      terminalInfo.set(t.id, info);
+    }
+  }
+
+  // 3) locate the requested terminals (by merged id or member ref)
+  const findTerminal = (q: string): number => {
+    for (const [id, root] of rootByTerminalId) {
+      if (matches({ id, refs: terminalInfo.get(id)!.refs }, q)) return uf.find(root);
+    }
+    throw new Error(`terminal "${q}" not found on net "${net}" (have: ${[...rootByTerminalId.keys()].join(", ")})`);
+  };
+  const rootA = findTerminal(terminalA);
+  const rootB = findTerminal(terminalB);
+  if (rootA === rootB) throw new Error(`terminals "${terminalA}" and "${terminalB}" are the same node`);
+
+  // 4) assemble the merged stiffness
+  const rows: SparseRows = Array.from({ length: total }, () => new Map());
+  for (const b of blocks) {
+    assembleStiffness(rows, b.vertices, b.triangles, gSheet, (v) => uf.find(b.offset + v));
+  }
+
+  // 5) restrict to the connected component containing A (drop other islands so the
+  //    reduced system stays SPD); B must live in it
+  const component = new Int32Array(total).fill(-1);
+  const queue = [rootA];
+  component[rootA] = 0;
+  while (queue.length) {
+    const v = queue.pop()!;
+    for (const c of rows[v]!.keys()) {
+      if (component[c]! < 0) {
+        component[c] = 0;
+        queue.push(c);
+      }
+    }
+  }
+  if (component[rootB]! < 0) {
+    throw new Error(
+      `terminals "${terminalA}" and "${terminalB}" are not connected on net "${net}" (check layer set / via stitching)`,
+    );
+  }
+
+  // 6) Dirichlet reduction: V(A)=1, V(B)=0, everything else free
+  const freeIndex = new Int32Array(total).fill(-1);
+  let nFree = 0;
+  for (let i = 0; i < total; i++) {
+    if (component[i]! === 0 && i !== rootA && i !== rootB && uf.find(i) === i) freeIndex[i] = nFree++;
+  }
+  const reduced: SparseRows = Array.from({ length: nFree }, () => new Map());
+  const rhs = new Float64Array(nFree);
+  for (let i = 0; i < total; i++) {
+    const fi = freeIndex[i]!;
+    if (fi < 0) continue;
+    for (const [c, v] of rows[i]!) {
+      if (c === rootA) rhs[fi] = rhs[fi]! - v; // move V(A)=1 to the RHS
+      else if (c === rootB) continue; // V(B)=0
+      else {
+        const fc = freeIndex[c]!;
+        if (fc >= 0) reduced[fi]!.set(fc, (reduced[fi]!.get(fc) ?? 0) + v);
+      }
+    }
+  }
+  const { x, iterations, relResidual } = conjugateGradient(reduced, rhs, options?.tolerance ?? 1e-12);
+
+  // 7) terminal currents from the full stiffness rows: I_A = Σ K[A,j]·V_j
+  const potential = (i: number): number => {
+    const r = uf.find(i);
+    if (r === rootA) return 1;
+    if (r === rootB) return 0;
+    const fi = freeIndex[r]!;
+    return fi >= 0 ? x[fi]! : 0;
+  };
+  const currentAt = (root: number): number => {
+    let s = 0;
+    for (const [c, v] of rows[root]!) s += v * potential(c);
+    return s;
+  };
+  const iA = currentAt(rootA);
+  const iB = currentAt(rootB);
+
+  return {
+    resistance: 1 / iA,
+    relResidual,
+    iterations,
+    dofs: nFree,
+    terminals: [...rootByTerminalId.keys()],
+    layers: blocks.map((b) => b.layer),
+    skippedTerminals,
+    conservationError: Math.abs(iA + iB) / Math.abs(iA),
+  };
+}
