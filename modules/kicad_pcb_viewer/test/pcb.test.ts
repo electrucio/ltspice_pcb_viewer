@@ -26,6 +26,15 @@ describe("kicad_pcb parser", () => {
     expect(hit / total).toBeGreaterThan(0.8);
   });
 
+  it("keeps pad angles absolute (KiCad file convention), not footprint-relative", () => {
+    // Q7 (TO-3P) is placed at 90°; its pads are stored as (at … 90) — absolute, i.e.
+    // relative rotation 0. Adding the footprint angle again (the old bug) gave 180°
+    // and drew the 2.5×4.5 ovals tall instead of wide.
+    const q7 = pcb.footprints.find((f) => f.ref === "Q7")!;
+    expect(q7.angle).toBe(90);
+    for (const p of q7.pads) expect(p.angle).toBe(90);
+  });
+
   it("knows about both copper layers and the board outline", () => {
     expect(pcb.layers).toContain("F.Cu");
     expect(pcb.layers).toContain("B.Cu");

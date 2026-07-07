@@ -153,7 +153,10 @@ function readPad(node: SNode, fpos: Point, fangle: number, ref: string, sign: nu
     thruHole: type === "thru_hole" || type === "np_thru_hole",
     pos,
     size: { w, h },
-    angle: fangle + a.angle,
+    // KiCad stores the pad angle ABSOLUTE (board frame, footprint rotation already
+    // included) even though the position is footprint-relative — e.g. poweramp Q7:
+    // footprint (at … 90), pads (at … 90) = relative 0. Adding fangle double-rotates.
+    angle: a.angle,
     rratio: Number(child(node, "roundrect_rratio")?.values[0] ?? 0.25),
     drill,
     layers: children(node, "layers").flatMap((l) => l.values.map(String)),
