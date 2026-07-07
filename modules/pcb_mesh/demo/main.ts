@@ -8,7 +8,8 @@ import defaultBoard from "../../kicad_pcb_viewer/demo/poweramp.kicad_pcb?raw";
 import { parsePcb, type Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
 import { buildBoardMesh } from "../src/build.js";
 import { analyzeRegion } from "../src/verify.js";
-import { initRuppert } from "../src/mesh/ruppert.js";
+import { initRuppert, ruppertReady } from "../src/mesh/ruppert.js";
+import { solveNetResistance } from "../../solver_rdc/src/solve.js";
 import type { BoardMesh, RegionMesh } from "../src/types.js";
 
 type Refinement = "ruppert" | "delaunay" | "bisect";
@@ -21,6 +22,11 @@ const fileInput = document.getElementById("file") as HTMLInputElement;
 const islandsOnlyEl = document.getElementById("islandsOnly") as HTMLInputElement;
 const statsEl = document.getElementById("stats")!;
 const infoEl = document.getElementById("info") as HTMLPreElement;
+const solveEl = document.getElementById("solve") as HTMLDivElement;
+const padASel = document.getElementById("padA") as HTMLSelectElement;
+const padBSel = document.getElementById("padB") as HTMLSelectElement;
+const solveBtn = document.getElementById("solveBtn") as HTMLButtonElement;
+const rresEl = document.getElementById("rres")!;
 const netsEl = document.getElementById("nets")!;
 const hoverEl = document.getElementById("hover")!;
 const SVGNS = "http://www.w3.org/2000/svg";
@@ -177,7 +183,49 @@ function selectNet(net: string | null): void {
   render();
   renderNetList();
   renderInfo();
+  renderSolvePanel();
 }
+
+function netPads(net: string): string[] {
+  const out = new Set<string>();
+  for (const f of pcb.footprints) for (const p of f.pads) if (p.net === net) out.add(`${p.ref}.${p.number}`);
+  return [...out].sort();
+}
+
+function renderSolvePanel(): void {
+  rresEl.textContent = "";
+  const pads = selectedNet ? netPads(selectedNet) : [];
+  if (!selectedNet || pads.length < 2) { solveEl.hidden = true; return; }
+  solveEl.hidden = false;
+  padASel.replaceChildren(...pads.map((p) => new Option(p, p)));
+  padBSel.replaceChildren(...pads.map((p) => new Option(p, p)));
+  padBSel.selectedIndex = 1;
+}
+
+solveBtn.addEventListener("click", () => {
+  if (!selectedNet) return;
+  const [a, b] = [padASel.value, padBSel.value];
+  if (a === b) { rresEl.textContent = "pick two different pads"; return; }
+  rresEl.textContent = "solving…";
+  setTimeout(() => {
+    try {
+      const t0 = performance.now();
+      const r = solveNetResistance(pcb, selectedNet!, a, b, {
+        maxEdgeLength: 0.5,
+        refinement: ruppertReady() ? "ruppert" : "delaunay",
+      });
+      const ms = performance.now() - t0;
+      const mOhm = r.resistance * 1000;
+      rresEl.innerHTML =
+        `<b>R(${a} ↔ ${b}) = ${mOhm >= 100 ? (mOhm / 1000).toFixed(3) + " Ω" : mOhm.toFixed(2) + " mΩ"}</b>\n` +
+        `layers ${r.layers.join("+")} · ${r.dofs.toLocaleString()} DOFs · ${ms.toFixed(0)} ms\n` +
+        `residual ${r.relResidual.toExponential(1)} · conservation ${r.conservationError.toExponential(1)}` +
+        (r.skippedTerminals.length ? `\n⚠ skipped terminals: ${r.skippedTerminals.join(", ")}` : "");
+    } catch (e) {
+      rresEl.textContent = String(e instanceof Error ? e.message : e);
+    }
+  }, 10);
+});
 
 function loadBoard(text: string): void {
   pcb = parsePcb(text);

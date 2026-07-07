@@ -12,6 +12,9 @@
       aside label { display: block; margin: 6px 0; }
       #stats { margin: 10px 0; padding: 8px; border: 1px solid #8884; border-radius: 6px; white-space: pre-line; }
       #info { margin: 10px 0; padding: 8px; border: 1px solid #4a90d9; border-radius: 6px; font-size: 11px; line-height: 1.5; overflow-x: auto; }
+      #solve { margin: 10px 0; padding: 8px; border: 1px solid #2e9e44; border-radius: 6px; }
+      #solve select { max-width: 90px; }
+      #rres { margin-top: 6px; white-space: pre-line; font-size: 12px; }
       #info .ok { color: #2e9e44; } #info .bad { color: #d33; font-weight: bold; }
       #nets { margin: 0; padding: 0; list-style: none; }
       #nets li { padding: 3px 6px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
@@ -48,6 +51,13 @@
       </label>
       <label><input type="checkbox" id="islandsOnly" /> highlight multi-island copper (per-layer islands &gt; 1)</label>
       <div id="stats">…</div>
+      <div id="solve" hidden>
+        <b>DC resistance</b>
+        <label>from <select id="padA"></select></label>
+        <label>to <select id="padB"></select></label>
+        <button id="solveBtn">Solve R</button>
+        <div id="rres"></div>
+      </div>
       <pre id="info" hidden></pre>
       <ul id="nets"></ul>
     </aside>
