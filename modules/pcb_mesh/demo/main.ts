@@ -10,6 +10,7 @@ import { buildBoardMesh } from "../src/build.js";
 import { analyzeRegion } from "../src/verify.js";
 import { initRuppert, ruppertReady } from "../src/mesh/ruppert.js";
 import { solveNetResistance } from "../../solver_rdc/src/solve.js";
+import { estimateResistance } from "../../solver_rdc/src/estimate.js";
 import type { BoardMesh, RegionMesh } from "../src/types.js";
 
 type Refinement = "ruppert" | "delaunay" | "bisect";
@@ -186,20 +187,117 @@ function selectNet(net: string | null): void {
   renderSolvePanel();
 }
 
-function netPads(net: string): string[] {
-  const out = new Set<string>();
-  for (const f of pcb.footprints) for (const p of f.pads) if (p.net === net) out.add(`${p.ref}.${p.number}`);
-  return [...out].sort();
+function netPads(net: string): Array<{ id: string; x: number; y: number }> {
+  const seen = new Map<string, { id: string; x: number; y: number }>();
+  for (const f of pcb.footprints)
+    for (const p of f.pads)
+      if (p.net === net && !seen.has(`${p.ref}.${p.number}`))
+        seen.set(`${p.ref}.${p.number}`, { id: `${p.ref}.${p.number}`, x: p.pos.x, y: p.pos.y });
+  return [...seen.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 function renderSolvePanel(): void {
   rresEl.textContent = "";
+  clearFlow();
   const pads = selectedNet ? netPads(selectedNet) : [];
-  if (!selectedNet || pads.length < 2) { solveEl.hidden = true; return; }
+  if (!selectedNet || pads.length < 2) { solveEl.hidden = true; renderPadMarkers([]); return; }
   solveEl.hidden = false;
-  padASel.replaceChildren(...pads.map((p) => new Option(p, p)));
-  padBSel.replaceChildren(...pads.map((p) => new Option(p, p)));
+  padASel.replaceChildren(...pads.map((p) => new Option(p.id, p.id)));
+  padBSel.replaceChildren(...pads.map((p) => new Option(p.id, p.id)));
   padBSel.selectedIndex = 1;
+  pickSlot = "from";
+  renderPadMarkers(pads);
+}
+
+// ---- clickable pad markers (from = green, to = red) -------------------------
+
+function renderPadMarkers(pads: Array<{ id: string; x: number; y: number }>): void {
+  svg.querySelector("#padmarkers")?.remove();
+  if (!pads.length) return;
+  const g = document.createElementNS(SVGNS, "g");
+  g.id = "padmarkers";
+  for (const p of pads) {
+    const c = document.createElementNS(SVGNS, "circle");
+    c.setAttribute("cx", String(p.x));
+    c.setAttribute("cy", String(p.y));
+    c.setAttribute("r", "1.1");
+    c.setAttribute("fill", "none");
+    c.setAttribute("stroke-width", "0.25");
+    c.dataset.pad = p.id;
+    c.style.cursor = "pointer";
+    c.addEventListener("click", (ev) => { ev.stopPropagation(); pickPad(p.id); });
+    const label = document.createElementNS(SVGNS, "text");
+    label.textContent = p.id;
+    label.setAttribute("x", String(p.x + 1.3));
+    label.setAttribute("y", String(p.y - 1.3));
+    label.setAttribute("font-size", "1.1");
+    label.setAttribute("fill", "#ccc");
+    label.setAttribute("pointer-events", "none");
+    g.append(c, label);
+  }
+  svg.appendChild(g);
+  updatePadMarkers();
+}
+
+let pickSlot: "from" | "to" = "from";
+
+function pickPad(id: string): void {
+  // alternate: 1st click sets "from" (green), 2nd sets "to" (red), then repeat
+  if (pickSlot === "from") {
+    padASel.value = id;
+    if (padBSel.value === id) padBSel.selectedIndex = padASel.selectedIndex === 0 ? 1 : 0;
+    pickSlot = "to";
+  } else {
+    if (id !== padASel.value) padBSel.value = id;
+    pickSlot = "from";
+  }
+  updatePadMarkers();
+}
+
+function updatePadMarkers(): void {
+  for (const c of svg.querySelectorAll<SVGCircleElement>("#padmarkers circle")) {
+    const id = c.dataset.pad!;
+    const stroke = id === padASel.value ? "#2e9e44" : id === padBSel.value ? "#d33" : "#999";
+    c.setAttribute("stroke", stroke);
+    c.setAttribute("stroke-width", id === padASel.value || id === padBSel.value ? "0.45" : "0.25");
+  }
+}
+
+padASel.addEventListener("change", updatePadMarkers);
+padBSel.addEventListener("change", updatePadMarkers);
+
+// ---- current-flow overlay (the "path" between the terminals) ----------------
+
+function clearFlow(): void {
+  svg.querySelector("#flow")?.remove();
+}
+
+function renderFlow(field: NonNullable<ReturnType<typeof solveNetResistance>["field"]>): void {
+  clearFlow();
+  const g = document.createElementNS(SVGNS, "g");
+  g.id = "flow";
+  g.setAttribute("pointer-events", "none");
+  // robust scale: 98th percentile of nonzero |J|
+  const all = field.flatMap((f) => [...f.currentDensity].filter((j) => j > 0)).sort((a, b) => a - b);
+  const jMax = all[Math.min(all.length - 1, Math.floor(all.length * 0.98))] || 1;
+  for (const f of field) {
+    for (let t = 0; t < f.triangles.length; t += 3) {
+      const j = f.currentDensity[t / 3]!;
+      const rel = Math.min(1, j / jMax);
+      if (rel < 0.03) continue;
+      const [a, b, c] = [f.triangles[t]! * 2, f.triangles[t + 1]! * 2, f.triangles[t + 2]! * 2];
+      const p = document.createElementNS(SVGNS, "path");
+      p.setAttribute("d", `M${f.vertices[a]} ${f.vertices[a + 1]}L${f.vertices[b]} ${f.vertices[b + 1]}L${f.vertices[c]} ${f.vertices[c + 1]}Z`);
+      // cold→hot: yellow → red, opacity with intensity
+      p.setAttribute("fill", `hsl(${60 - 60 * rel} 100% 55%)`);
+      p.setAttribute("fill-opacity", String(0.15 + 0.75 * rel));
+      g.appendChild(p);
+    }
+  }
+  svg.appendChild(g);
+  // keep markers on top
+  const markers = svg.querySelector("#padmarkers");
+  if (markers) svg.appendChild(markers);
 }
 
 solveBtn.addEventListener("click", () => {
@@ -213,16 +311,24 @@ solveBtn.addEventListener("click", () => {
       const r = solveNetResistance(pcb, selectedNet!, a, b, {
         maxEdgeLength: 0.5,
         refinement: ruppertReady() ? "ruppert" : "delaunay",
+        returnField: true,
       });
       const ms = performance.now() - t0;
-      const mOhm = r.resistance * 1000;
+      const fmt = (ohm: number) => (ohm >= 0.1 ? ohm.toFixed(3) + " Ω" : (ohm * 1000).toFixed(2) + " mΩ");
+      const est = estimateResistance(pcb, selectedNet!, a, b);
+      const estLine = est
+        ? `M0 estimate (shortest track path, ${est.pathLengthMm.toFixed(1)} mm, ${est.viaHops} via hops): ${fmt(est.resistance)} · Δ ${(100 * (est.resistance - r.resistance) / r.resistance).toFixed(0)}%`
+        : "M0 estimate: no pure track path (net uses pours/graphics)";
       rresEl.innerHTML =
-        `<b>R(${a} ↔ ${b}) = ${mOhm >= 100 ? (mOhm / 1000).toFixed(3) + " Ω" : mOhm.toFixed(2) + " mΩ"}</b>\n` +
+        `<b>R(${a} ↔ ${b}) = ${fmt(r.resistance)}</b>\n` +
+        `${estLine}\n` +
         `layers ${r.layers.join("+")} · ${r.dofs.toLocaleString()} DOFs · ${ms.toFixed(0)} ms\n` +
         `residual ${r.relResidual.toExponential(1)} · conservation ${r.conservationError.toExponential(1)}` +
         (r.skippedTerminals.length ? `\n⚠ skipped terminals: ${r.skippedTerminals.join(", ")}` : "");
+      if (r.field) renderFlow(r.field);
     } catch (e) {
       rresEl.textContent = String(e instanceof Error ? e.message : e);
+      clearFlow();
     }
   }, 10);
 });

@@ -67,12 +67,15 @@ export interface ZoneFill {
   pts: Point[];
 }
 
-export type BoardGraphic =
+/** Board-level graphic. On copper layers KiCad 9/10 can assign these a net
+ *  (`(net "…")`) — they are then real, connected copper, not decoration. */
+export type BoardGraphic = { net?: string } & (
   | { kind: "line"; layer: string; a: Point; b: Point; width: number }
   | { kind: "rect"; layer: string; a: Point; b: Point; width: number; fill: boolean }
   | { kind: "circle"; layer: string; center: Point; radius: number; width: number }
   | { kind: "arc"; layer: string; start: Point; mid: Point; end: Point; width: number }
-  | { kind: "poly"; layer: string; pts: Point[]; width: number; fill: boolean };
+  | { kind: "poly"; layer: string; pts: Point[]; width: number; fill: boolean }
+);
 
 export interface BBox {
   minX: number;
@@ -222,6 +225,14 @@ function readFootprint(node: SNode, sign: number): Footprint {
 function readBoardGraphic(node: SNode): BoardGraphic | null {
   const layer = childStr(node, "layer") ?? "";
   const w = strokeWidth(node);
+  const g = readBoardGraphicShape(node, layer, w);
+  if (!g) return null;
+  const net = childStr(node, "net");
+  if (net !== undefined) g.net = net;
+  return g;
+}
+
+function readBoardGraphicShape(node: SNode, layer: string, w: number): BoardGraphic | null {
   switch (node.name) {
     case "gr_line":
       return { kind: "line", layer, a: xy(child(node, "start")), b: xy(child(node, "end")), width: w };
@@ -284,7 +295,10 @@ export function parsePcb(text: string, sign: number = ROT_SIGN): Pcb {
       }
       default: {
         const g = readBoardGraphic(node);
-        if (g) graphics.push(g);
+        if (g) {
+          graphics.push(g);
+          if (g.net) netSet.add(g.net);
+        }
       }
     }
   }

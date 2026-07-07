@@ -10,6 +10,8 @@
  */
 
 export { solveNetResistance } from "./solve.js";
-export type { SolveOptions, SolveResult } from "./solve.js";
+export type { SolveOptions, SolveResult, LayerField } from "./solve.js";
+export { estimateResistance } from "./estimate.js";
+export type { EstimateOptions, EstimateResult } from "./estimate.js";
 export { assembleStiffness, conjugateGradient, UnionFind } from "./fem.js";
 export type { SparseRows, CgResult } from "./fem.js";

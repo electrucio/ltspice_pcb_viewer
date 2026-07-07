@@ -40,11 +40,19 @@ const strip = () =>
 
 const OPTS = { refinement: "ruppert" as const, copperThicknessM: T };
 
+let poweramp: Pcb | undefined;
+function pcbFixture(): Pcb {
+  poweramp ??= parsePcb(
+    readFileSync(fileURLToPath(new URL("../../kicad_pcb_viewer/test/fixtures/poweramp.kicad_pcb", import.meta.url)), "utf8"),
+  );
+  return poweramp;
+}
+
 describe("M4 acceptance vs the M0 oracle", () => {
   it("straight strip: R = ρ·L/(W·t) within 0.5% (spec test)", () => {
     const r = solveNetResistance(strip(), "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: 0.2 });
-    // terminal rings are the pads inset ~0.02 → facing edges at x ≈ 0.196 / 9.804
-    const expected = RS * (9.804 - 0.196);
+    // terminal rings are the pads uniformly inset 0.02 → facing edges at x = 0.18 / 9.82
+    const expected = RS * (9.82 - 0.18);
     expect(r.relResidual).toBeLessThan(1e-10);
     expect(r.conservationError).toBeLessThan(1e-8);
     expect(Math.abs(r.resistance - expected) / expected).toBeLessThan(0.005);
@@ -58,8 +66,8 @@ describe("M4 acceptance vs the M0 oracle", () => {
       [pad("A", 0.1, 0.5, 0.2, 1), pad("B", 9.5, 9.9, 1, 0.2)],
     );
     const r = solveNetResistance(bend, "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: 0.15 });
-    // straight squares: (9 − 0.196) horizontal + (9.804 − 1) vertical, + the corner
-    const squares = (9 - 0.196) + (9.804 - 1) + CORNER_SQUARES;
+    // straight squares: (9 − 0.18) horizontal + (9.82 − 1) vertical, + the corner
+    const squares = (9 - 0.18) + (9.82 - 1) + CORNER_SQUARES;
     expect(Math.abs(r.resistance / RS - squares)).toBeLessThan(0.15); // ±0.15 sq on ~18.2
   });
 
@@ -133,5 +141,35 @@ describe("real board (poweramp)", () => {
     expect(r.resistance).toBeGreaterThan(1e-4);
     expect(r.resistance).toBeLessThan(0.1);
     expect(r.relResidual).toBeLessThan(1e-10);
+  });
+});
+
+describe("M0 estimate vs FEM (double-check role)", () => {
+  it("straight strip: estimate has no track path (zone-only) → null, FEM stands alone", async () => {
+    const { estimateResistance } = await import("../src/estimate.js");
+    expect(estimateResistance(strip(), "N1", "A.1", "B.1")).toBeNull();
+  });
+
+  it("poweramp /POW1: estimate within 30% of FEM on a routed path", async () => {
+    const { estimateResistance } = await import("../src/estimate.js");
+    const est = estimateResistance(pcbFixture(), "/POW1", "R2.1", "R9.1")!;
+    expect(est).not.toBeNull();
+    const fem = solveNetResistance(pcbFixture(), "/POW1", "R2.1", "R9.1", { ...OPTS, maxEdgeLength: 0.5 });
+    // single-path counting squares ignores spreading/parallel copper — expect
+    // same order, estimate ≥ FEM-ish
+    expect(est.resistance).toBeGreaterThan(fem.resistance * 0.7);
+    expect(est.resistance).toBeLessThan(fem.resistance * 1.6);
+  });
+
+  it("solver returns the field when asked and it is consistent", () => {
+    const r = solveNetResistance(strip(), "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: 0.3, returnField: true });
+    expect(r.field!.length).toBeGreaterThan(0);
+    const f = r.field![0]!;
+    expect(f.potential.length).toBe(f.vertices.length / 2);
+    expect(f.currentDensity.length).toBe(f.triangles.length / 3);
+    // 1-D strip: |J| is uniform → median · width == total current I = V/R
+    const mid = [...f.currentDensity].filter((j) => j > 0).sort((a, b) => a - b);
+    const median = mid[Math.floor(mid.length / 2)]!;
+    expect(Math.abs(median * 1 - 1 / r.resistance) / (1 / r.resistance)).toBeLessThan(0.02);
   });
 });

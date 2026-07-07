@@ -21,7 +21,7 @@
  *   tessellation deficit (bounded by ~2·chordTolerance/r) ± its own σ.
  */
 
-import type { BBox, Pad, Pcb, Track, Via, ZoneFill } from "../../kicad_pcb_viewer/src/parser/pcb.js";
+import type { BBox, BoardGraphic, Pad, Pcb, Track, Via, ZoneFill } from "../../kicad_pcb_viewer/src/parser/pcb.js";
 import { rotate } from "../../kicad_pcb_viewer/src/geometry/transform.js";
 import type { MeshOptions, MeshQuality, MultiPolygon } from "./types.js";
 import { multiPolygonArea, resolveOptions } from "./types.js";
@@ -62,6 +62,8 @@ export interface RegionReport {
     pads: number;
     vias: number;
     zoneFills: number;
+    /** net-assigned copper graphics (gr_poly & co. on copper layers) */
+    copperGraphics: number;
     /** disjoint copper islands — >1 on a routed net is worth a look */
     islands: number;
     holes: number;
@@ -216,6 +218,68 @@ function zoneArea(z: ZoneFill): number {
   return Math.abs(s / 2);
 }
 
+// net-assigned copper graphics: analytic point tests + closed-form areas
+// (fill shape ∪ per-edge stroke stadiums — mirrors src/outline/copper.ts)
+
+function graphicPointTests(g: BoardGraphic): PointTest[] {
+  const tests: PointTest[] = [];
+  const stroke = (ax: number, ay: number, bx: number, by: number, w: number) => {
+    if (w > 0) tests.push((x, y) => distToSegment(x, y, ax, ay, bx, by) <= w / 2);
+  };
+  if (g.kind === "poly") {
+    if (g.fill) {
+      const pts = g.pts;
+      tests.push((x, y) => {
+        let inside = false;
+        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+          const a = pts[i]!, b = pts[j]!;
+          if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+        }
+        return inside;
+      });
+    }
+    for (let i = 0; i < g.pts.length; i++) {
+      const a = g.pts[i]!, b = g.pts[(i + 1) % g.pts.length]!;
+      stroke(a.x, a.y, b.x, b.y, g.width);
+    }
+  } else if (g.kind === "rect") {
+    const x1 = Math.min(g.a.x, g.b.x), x2 = Math.max(g.a.x, g.b.x);
+    const y1 = Math.min(g.a.y, g.b.y), y2 = Math.max(g.a.y, g.b.y);
+    if (g.fill) tests.push((x, y) => x >= x1 && x <= x2 && y >= y1 && y <= y2);
+    stroke(x1, y1, x2, y1, g.width); stroke(x2, y1, x2, y2, g.width);
+    stroke(x2, y2, x1, y2, g.width); stroke(x1, y2, x1, y1, g.width);
+  } else if (g.kind === "circle") {
+    const r = g.radius + g.width / 2;
+    tests.push((x, y) => Math.hypot(x - g.center.x, y - g.center.y) <= r);
+  } else if (g.kind === "line") {
+    stroke(g.a.x, g.a.y, g.b.x, g.b.y, g.width);
+  } else if (g.kind === "arc") {
+    stroke(g.start.x, g.start.y, g.end.x, g.end.y, g.width); // straightened, like arc tracks
+  }
+  return tests;
+}
+
+function graphicArea(g: BoardGraphic): number {
+  const stadium = (len: number, w: number) => len * w + Math.PI * (w / 2) ** 2;
+  if (g.kind === "poly") {
+    let s = 0, per = 0;
+    for (let i = 0, n = g.pts.length; i < n; i++) {
+      const a = g.pts[i]!, b = g.pts[(i + 1) % n]!;
+      s += a.x * b.y - b.x * a.y;
+      per += stadium(Math.hypot(b.x - a.x, b.y - a.y), g.width);
+    }
+    return (g.fill ? Math.abs(s / 2) : 0) + per;
+  }
+  if (g.kind === "rect") {
+    const w = Math.abs(g.b.x - g.a.x), h = Math.abs(g.b.y - g.a.y);
+    return (g.fill ? w * h : 0) + 2 * (stadium(w, g.width) + stadium(h, g.width));
+  }
+  if (g.kind === "circle") return Math.PI * (g.radius + g.width / 2) ** 2;
+  if (g.kind === "line") return stadium(Math.hypot(g.b.x - g.a.x, g.b.y - g.a.y), g.width);
+  if (g.kind === "arc") return stadium(Math.hypot(g.end.x - g.start.x, g.end.y - g.start.y), g.width);
+  return 0;
+}
+
 // ---- helpers ----------------------------------------------------------------
 
 function mulberry32(seed: number): () => number {
@@ -274,12 +338,14 @@ export function analyzeRegion(pcb: Pcb, layer: string, net: string, options?: An
   const pads: Pad[] = [];
   for (const f of pcb.footprints) for (const p of f.pads) if (padOnLayer(p, layer) && p.net === net) pads.push(p);
   const zones = o.includeZones ? pcb.zones.filter((z) => z.layer === layer && z.net === net) : [];
+  const graphics = pcb.graphics.filter((g) => g.layer === layer && g.net === net);
 
   const primitiveSum =
     tracks.reduce((s, t) => s + trackArea(t), 0) +
     vias.reduce((s, v) => s + Math.PI * (v.size / 2) ** 2, 0) +
     pads.reduce((s, p) => s + padArea(p), 0) +
-    zones.reduce((s, z) => s + zoneArea(z), 0);
+    zones.reduce((s, z) => s + zoneArea(z), 0) +
+    graphics.reduce((s, g) => s + graphicArea(g), 0);
 
   // Monte Carlo over the analytic primitives (drills subtracted analytically too)
   const copperTests: PointTest[] = [
@@ -287,6 +353,7 @@ export function analyzeRegion(pcb: Pcb, layer: string, net: string, options?: An
     ...vias.map(viaTest),
     ...pads.map(padTest),
     ...zones.map(zoneTest),
+    ...graphics.flatMap(graphicPointTests),
   ];
   const drillTests: PointTest[] = [];
   if (o.subtractDrills) {
@@ -337,6 +404,7 @@ export function analyzeRegion(pcb: Pcb, layer: string, net: string, options?: An
       pads: pads.length,
       vias: vias.length,
       zoneFills: zones.length,
+      copperGraphics: graphics.length,
       islands: mesh.islands,
       holes: mesh.holes,
     },

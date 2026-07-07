@@ -20,7 +20,7 @@ import pc from "polygon-clipping";
 import type { Pcb, Pad } from "../../../kicad_pcb_viewer/src/parser/pcb.js";
 import type { MultiPolygon, Polygon, Ring, SanitationReport } from "../types.js";
 import { emptySanitationReport, multiPolygonArea, openRing, resolveOptions, type CopperRegion, type MeshOptions } from "../types.js";
-import { padArcRadius, padDrillOutline, padOutline, segmentsForRadius, trackOutline, viaDrillOutline, viaOutline } from "./primitives.js";
+import { circleOutline, padArcRadius, padDrillOutline, padOutline, segmentsForRadius, stadiumOutline, trackOutline, viaDrillOutline, viaOutline } from "./primitives.js";
 import { simplifyMultiPolygon } from "./simplify.js";
 
 type PcGeom = Parameters<typeof pc.union>[0];
@@ -97,6 +97,30 @@ export function extractCopper(pcb: Pcb, options?: MeshOptions): ExtractResult {
     if (o.includeZones)
       for (const z of pcb.zones)
         if (z.layer === layer) add(z.net, z.pts.map((p) => [p.x, p.y] as [number, number]));
+    // net-assigned copper graphics (KiCad 9/10 gr_poly/rect/circle/line on copper):
+    // real copper — fill plus the stroke outline (drawn as stadiums along each edge,
+    // which is what actually makes contact with neighbouring copper)
+    for (const g of pcb.graphics) {
+      if (g.layer !== layer || g.net === undefined) continue;
+      const stroke = (a: { x: number; y: number }, b: { x: number; y: number }, width: number) => {
+        if (width > 0) add(g.net!, stadiumOutline(a, b, width, segs(width / 2)));
+      };
+      if (g.kind === "poly") {
+        const ring = g.pts.map((p) => [p.x, p.y] as [number, number]);
+        if (g.fill) add(g.net, ring);
+        for (let i = 0; i < g.pts.length; i++) stroke(g.pts[i]!, g.pts[(i + 1) % g.pts.length]!, g.width);
+      } else if (g.kind === "rect") {
+        const c1 = g.a, c2 = { x: g.b.x, y: g.a.y }, c3 = g.b, c4 = { x: g.a.x, y: g.b.y };
+        if (g.fill) add(g.net, [[c1.x, c1.y], [c2.x, c2.y], [c3.x, c3.y], [c4.x, c4.y]]);
+        for (const [a, b] of [[c1, c2], [c2, c3], [c3, c4], [c4, c1]] as const) stroke(a, b, g.width);
+      } else if (g.kind === "circle") {
+        add(g.net, circleOutline(g.center.x, g.center.y, g.radius + g.width / 2, segs(g.radius + g.width / 2)));
+      } else if (g.kind === "line") {
+        stroke(g.a, g.b, g.width);
+      }
+      // arcs: parser keeps 3-point arcs; straightened like arc tracks (known gap)
+      else if (g.kind === "arc") stroke(g.start, g.end, g.width);
+    }
 
     // 2) all drills on this layer (net-independent: a hole is a hole)
     const drills: Polygon[] = [];

@@ -35,6 +35,20 @@ describe("kicad_pcb parser", () => {
     for (const p of q7.pads) expect(p.angle).toBe(90);
   });
 
+  it("reads net-assigned copper graphics (KiCad 9/10 gr_poly on B.Cu)", () => {
+    // the board patches Net-(Q4-E) with a filled graphic polygon on copper —
+    // real connected copper, not decoration
+    const g = pcb.graphics.find((x) => x.net === "Net-(Q4-E)")!;
+    expect(g).toBeDefined();
+    expect(g.kind).toBe("poly");
+    expect(g.layer).toBe("B.Cu");
+    if (g.kind === "poly") {
+      expect(g.fill).toBe(true);
+      expect(g.pts.length).toBe(3);
+      expect(g.width).toBeCloseTo(0.2, 9);
+    }
+  });
+
   it("knows about both copper layers and the board outline", () => {
     expect(pcb.layers).toContain("F.Cu");
     expect(pcb.layers).toContain("B.Cu");

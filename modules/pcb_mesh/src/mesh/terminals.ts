@@ -55,16 +55,46 @@ function centroid(ring: Ring): Vec2 {
   return [x / ring.length, y / ring.length];
 }
 
-/** Shrink a convex ring by ~`inset` toward its centroid (exactness irrelevant). */
+/**
+ * Uniform inward offset of a CONVEX ring: every edge moves `inset` along its inward
+ * normal; new vertices are the intersections of adjacent offset edges. (A radial
+ * shrink toward the centroid is NOT uniform — a 0.2 mm-wide pad would inset its short
+ * axis by only ~4 µm, leaving micro-channels that explode the quality mesher.)
+ */
 function insetRing(ring: Ring, inset: number): Ring | null {
+  const n = ring.length;
+  if (n < 3) return null;
   const [cx, cy] = centroid(ring);
+  // offset line per edge: point p + inward normal·inset, direction d
+  const lines: Array<{ px: number; py: number; dx: number; dy: number }> = [];
+  for (let i = 0; i < n; i++) {
+    const [ax, ay] = ring[i]!, [bx, by] = ring[(i + 1) % n]!;
+    const dx = bx - ax, dy = by - ay;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-12) continue; // skip degenerate edges
+    let nx = -dy / len, ny = dx / len;
+    // orient the normal toward the interior (centroid side)
+    if (nx * (cx - ax) + ny * (cy - ay) < 0) { nx = -nx; ny = -ny; }
+    lines.push({ px: ax + nx * inset, py: ay + ny * inset, dx, dy });
+  }
+  if (lines.length < 3) return null;
   const out: Ring = [];
-  for (const [px, py] of ring) {
-    const dx = px - cx, dy = py - cy;
-    const d = Math.hypot(dx, dy);
-    if (d <= inset * 1.5) return null; // pad too small to inset — skip
-    const k = (d - inset) / d;
-    out.push([cx + dx * k, cy + dy * k]);
+  for (let i = 0; i < lines.length; i++) {
+    const a = lines[(i + lines.length - 1) % lines.length]!, b = lines[i]!;
+    const det = a.dx * b.dy - a.dy * b.dx;
+    if (Math.abs(det) < 1e-12) continue; // collinear neighbours — vertex is redundant
+    const t = ((b.px - a.px) * b.dy - (b.py - a.py) * b.dx) / det;
+    out.push([a.px + t * a.dx, a.py + t * a.dy]);
+  }
+  if (out.length < 3) return null;
+  // reject collapsed insets (pad thinner than 2·inset): vertices must stay inside
+  for (const [x, y] of out) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [ax, ay] = ring[i]!, [bx, by] = ring[j]!;
+      if (ay > y !== by > y && x < ((bx - ax) * (y - ay)) / (by - ay) + ax) inside = !inside;
+    }
+    if (!inside) return null;
   }
   return out;
 }

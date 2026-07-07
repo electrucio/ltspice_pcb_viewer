@@ -86,3 +86,30 @@ describe("copper region extraction (union + drills)", () => {
     expect(regions.map((r) => r.net)).toEqual(["B"]);
   });
 });
+
+describe("net-assigned copper graphics (KiCad 9/10)", () => {
+  it("a filled gr_poly with a net joins the union like any copper", () => {
+    const pcb = makePcb({
+      tracks: [
+        { start: { x: 0, y: 0 }, end: { x: 4, y: 0 }, width: 1, layer: "B.Cu", net: "A" },
+        { start: { x: 8, y: 0 }, end: { x: 12, y: 0 }, width: 1, layer: "B.Cu", net: "A" },
+      ],
+      graphics: [
+        { kind: "poly", layer: "B.Cu", net: "A", fill: true, width: 0.2, pts: [{ x: 3.5, y: -0.3 }, { x: 8.5, y: -0.3 }, { x: 8.5, y: 0.3 }, { x: 3.5, y: 0.3 }] },
+      ],
+    });
+    const regions = extractCopperRegions(pcb, { arcSegments: SEGS });
+    expect(regions).toHaveLength(1);
+    expect(regions[0]!.polygons).toHaveLength(1); // bridged into ONE island
+  });
+
+  it("netless graphics stay decoration (not copper)", () => {
+    const pcb = makePcb({
+      tracks: [{ start: { x: 0, y: 0 }, end: { x: 4, y: 0 }, width: 1, layer: "B.Cu", net: "A" }],
+      graphics: [{ kind: "poly", layer: "B.Cu", fill: true, width: 0.2, pts: [{ x: 10, y: 0 }, { x: 12, y: 0 }, { x: 11, y: 2 }] }],
+    });
+    const regions = extractCopperRegions(pcb, { arcSegments: SEGS });
+    expect(regions).toHaveLength(1);
+    expect(regions[0]!.area).toBeLessThan(5); // just the track
+  });
+});

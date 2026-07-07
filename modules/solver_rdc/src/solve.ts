@@ -24,6 +24,19 @@ export interface SolveOptions extends TerminalMeshOptions {
   tempC?: number;
   /** CG relative-residual tolerance (default 1e-12) */
   tolerance?: number;
+  /** also return the solved field (per-layer potentials + current density) */
+  returnField?: boolean;
+}
+
+export interface LayerField {
+  layer: string;
+  /** interleaved x,y (mm) — the solver mesh geometry */
+  vertices: Float64Array;
+  triangles: Uint32Array;
+  /** V at each vertex (V(A)=1, V(B)=0) */
+  potential: Float64Array;
+  /** |J| per triangle, A per mm of sheet width at 1 V drive (σt·|∇V|) */
+  currentDensity: Float64Array;
 }
 
 export interface SolveResult {
@@ -41,6 +54,8 @@ export interface SolveResult {
   skippedTerminals: string[];
   /** |I_A + I_B| / |I_A| — current conservation check */
   conservationError: number;
+  /** present when options.returnField was set */
+  field?: LayerField[];
 }
 
 interface LayerBlock {
@@ -180,7 +195,31 @@ export function solveNetResistance(
   const iA = currentAt(rootA);
   const iB = currentAt(rootB);
 
+  let field: LayerField[] | undefined;
+  if (options?.returnField) {
+    field = blocks.map((b) => {
+      const nLocal = b.vertices.length / 2;
+      const pot = new Float64Array(nLocal);
+      for (let i = 0; i < nLocal; i++) pot[i] = potential(b.offset + i);
+      const currentDensity = new Float64Array(b.triangles.length / 3);
+      for (let t = 0; t < b.triangles.length; t += 3) {
+        const i = b.triangles[t]!, j = b.triangles[t + 1]!, k = b.triangles[t + 2]!;
+        const x1 = b.vertices[2 * i]!, y1 = b.vertices[2 * i + 1]!;
+        const x2 = b.vertices[2 * j]!, y2 = b.vertices[2 * j + 1]!;
+        const x3 = b.vertices[2 * k]!, y3 = b.vertices[2 * k + 1]!;
+        const area2 = x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2);
+        if (Math.abs(area2) < 1e-18) continue;
+        const v1 = pot[i]!, v2 = pot[j]!, v3 = pot[k]!;
+        const gx = (v1 * (y2 - y3) + v2 * (y3 - y1) + v3 * (y1 - y2)) / area2;
+        const gy = (v1 * (x3 - x2) + v2 * (x1 - x3) + v3 * (x2 - x1)) / area2;
+        currentDensity[t / 3] = gSheet * Math.hypot(gx, gy);
+      }
+      return { layer: b.layer, vertices: b.vertices, triangles: b.triangles, potential: pot, currentDensity };
+    });
+  }
+
   return {
+    field,
     resistance: 1 / iA,
     relResidual,
     iterations,

@@ -47,9 +47,17 @@ Current status:
   corner**, reciprocity, temperature scaling, refinement stability, and on the
   poweramp a pad pair disconnected on B.Cu alone solving finite through THT/via
   stitching. Measured: /POW1 R2.1↔R9.1 = 3.80 mΩ (≈ counting-squares 3.7 mΩ).
-- **M3, M5–M8** — not started. Next: UI integration ("click two pads → R ± err"),
-  then Richardson error bars (needs the refinement-level harness), lumped via R,
-  stackup parsing (M5 prerequisite).
+- **UI (demo)** — click-to-pick pad terminals (green from / red to markers), FEM R
+  with residual+conservation, **current-density overlay** (the solved field, yellow→
+  red by |J|; solver returns per-layer potentials via `returnField`), and the **M0
+  instant estimate** beside it (`solver_rdc/estimate.ts`: Dijkstra over the net's
+  track graph, via barrels from analytic_models; honest limits — single path, no
+  pours/graphics/corner corrections; null when no track path exists). Terminal-ring
+  inset is a true uniform edge offset (a radial shrink under-inset thin pads by 5×
+  and spawned µm channels that exploded the mesher — fixed, strip now matches
+  ρL/(Wt) to 2e-5).
+- **M3, M5–M8** — not started. Next: Richardson error bars (refinement-level
+  harness), lumped via R, stackup parsing (M5 prerequisite), app-level integration.
 
 ## 2. Module: `modules/pcb_mesh` (TypeScript)
 
@@ -204,7 +212,11 @@ demo falls back to cdt2d when missing). Toolchain via `brew install rustup wasm-
 - Don't import a wasm-pack `.wasm` via `?url` dynamic import in vite dev — serve it
   through `fs.allow` + default `initWasm()` fetch, or pass bytes in node.
 - KiCad file facts verified on real files this session: pad angle absolutism (above);
-  zone `filled_polygon`s are trusted as poured; net identity is the name string.
+  zone `filled_polygon`s are trusted as poured; net identity is the name string;
+  **KiCad 9/10 graphic shapes on copper can carry `(net "…")` and are then real,
+  connected copper** (a `gr_poly` patched Net-(Q4-E) on this board — parser reads the
+  net, extraction/MC-verifier include fill + stroke stadiums); zones with `(keepout …)`
+  and no `filled_polygon` are rule areas, not missing fills.
 
 ## 7. Where things live
 

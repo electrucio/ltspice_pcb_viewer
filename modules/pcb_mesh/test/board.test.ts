@@ -74,3 +74,10 @@ describe("poweramp board end-to-end", () => {
     }
   });
 });
+
+describe("net-assigned copper graphics on the real board", () => {
+  it("Net-(Q4-E): the B.Cu gr_poly patch heals the split (2 islands → 1)", () => {
+    const [r] = extractCopperRegions(pcb, { layers: ["B.Cu"], nets: ["Net-(Q4-E)"], arcSegments: 16 });
+    expect(r!.polygons.length).toBe(1);
+  });
+});
