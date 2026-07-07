@@ -81,3 +81,20 @@ describe("net-assigned copper graphics on the real board", () => {
     expect(r!.polygons.length).toBe(1);
   });
 });
+
+describe("preamp board (second golden fixture — polygon-clipping robustness)", () => {
+  // regression: at arcSegments 24 this board triggered Martinez–Rueda's
+  // "unable to complete output ring" before coordinate snapping (1 nm grid)
+  const preamp = parsePcb(
+    readFileSync(fileURLToPath(new URL("../../kicad_pcb_viewer/test/fixtures/preamp.kicad_pcb", import.meta.url)), "utf8"),
+  );
+
+  it("meshes at the demo's exact options without boolean failures", () => {
+    const mesh = buildBoardMesh(preamp, { arcSegments: 24 });
+    expect(mesh.regions.length).toBeGreaterThan(50);
+    expect(mesh.report.droppedPrimitives).toBe(0);
+    for (const r of mesh.regions) {
+      expect(Math.abs(r.meshArea - r.outlineArea) / r.outlineArea, `${r.layer}/${r.net}`).toBeLessThan(1e-6);
+    }
+  });
+});

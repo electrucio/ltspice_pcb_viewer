@@ -25,6 +25,59 @@ import { simplifyMultiPolygon } from "./simplify.js";
 
 type PcGeom = Parameters<typeof pc.union>[0];
 
+/** Snap to a 1 nm grid: float-noise coordinates (tessellated arcs, rotated pads) are
+ *  the classic trigger for Martinez–Rueda "unable to complete output ring" failures,
+ *  and 1e-6 mm is far below any tolerance in this pipeline. */
+const snap = (v: number) => Math.round(v * 1e6) / 1e6;
+
+/**
+ * polygon-clipping occasionally fails on near-degenerate constellations even after
+ * snapping. Recover instead of dying: union incrementally, and jitter (then drop) the
+ * specific primitive that breaks — counted in the report, never silent.
+ */
+function robustUnion(polys: Polygon[], report: SanitationReport): ReturnType<typeof pc.union> {
+  try {
+    return pc.union(polys[0] as PcGeom, ...(polys.slice(1) as PcGeom[]));
+  } catch {
+    let acc = pc.union(polys[0] as PcGeom);
+    for (let i = 1; i < polys.length; i++) {
+      try {
+        acc = pc.union(acc as PcGeom, polys[i] as PcGeom);
+      } catch {
+        try {
+          const jittered = polys[i]!.map((ring) => ring.map(([x, y]) => [x + 1.7e-6, y + 2.3e-6] as [number, number]));
+          acc = pc.union(acc as PcGeom, jittered as unknown as PcGeom);
+          report.booleanFallbacks++;
+        } catch {
+          report.droppedPrimitives++;
+        }
+      }
+    }
+    return acc;
+  }
+}
+
+function robustDifference(acc: ReturnType<typeof pc.union>, drills: Polygon[], report: SanitationReport): ReturnType<typeof pc.union> {
+  try {
+    return pc.difference(acc as PcGeom, drills as unknown as PcGeom);
+  } catch {
+    for (const d of drills) {
+      try {
+        acc = pc.difference(acc as PcGeom, [d] as unknown as PcGeom);
+      } catch {
+        try {
+          const jittered = d.map((ring) => ring.map(([x, y]) => [x + 1.7e-6, y + 2.3e-6] as [number, number]));
+          acc = pc.difference(acc as PcGeom, [jittered] as unknown as PcGeom);
+          report.booleanFallbacks++;
+        } catch {
+          report.droppedPrimitives++;
+        }
+      }
+    }
+    return acc;
+  }
+}
+
 export interface ExtractResult {
   regions: CopperRegion[];
   report: SanitationReport;
@@ -78,7 +131,7 @@ export function extractCopper(pcb: Pcb, options?: MeshOptions): ExtractResult {
       if (ring.length < 3) return;
       let list = byNet.get(net);
       if (!list) byNet.set(net, (list = []));
-      list.push([ring]);
+      list.push([ring.map(([x, y]) => [snap(x), snap(y)] as [number, number])]);
     };
 
     for (const t of pcb.tracks)
@@ -124,21 +177,22 @@ export function extractCopper(pcb: Pcb, options?: MeshOptions): ExtractResult {
 
     // 2) all drills on this layer (net-independent: a hole is a hole)
     const drills: Polygon[] = [];
+    const snapRing = (r: Ring): Ring => r.map(([x, y]) => [snap(x), snap(y)] as [number, number]);
     if (o.subtractDrills) {
       for (const v of pcb.vias)
-        if (v.layers.length === 0 || v.layers.includes(layer)) drills.push([viaDrillOutline(v, segs(v.drill / 2))]);
+        if (v.layers.length === 0 || v.layers.includes(layer)) drills.push([snapRing(viaDrillOutline(v, segs(v.drill / 2)))]);
       for (const f of pcb.footprints)
         for (const p of f.pads) {
           if (!p.thruHole) continue;
           const d = padDrillOutline(p, segs(Math.min(p.drill?.w ?? 0, p.drill?.h ?? 0) / 2));
-          if (d) drills.push([d]);
+          if (d) drills.push([snapRing(d)]);
         }
     }
 
-    // 3) union per net, minus drills
+    // 3) union per net, minus drills (robust: snap + incremental fallback)
     for (const [net, polys] of byNet) {
-      let merged = pc.union(polys[0] as PcGeom, ...(polys.slice(1) as PcGeom[]));
-      if (drills.length) merged = pc.difference(merged as PcGeom, drills as unknown as PcGeom);
+      let merged = robustUnion(polys, report);
+      if (drills.length) merged = robustDifference(merged, drills, report);
       let polygons = normalize(merged);
       if (o.simplifyTolerance > 0 && polygons.length) {
         const s = simplifyMultiPolygon(polygons, o.simplifyTolerance);

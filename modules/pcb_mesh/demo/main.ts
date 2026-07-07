@@ -75,6 +75,8 @@ function rebuildMesh(): void {
     rep.degenerateRings && `${rep.degenerateRings} degenerate rings`,
     rep.emptyRegions && `${rep.emptyRegions} vanished regions (NPTH)`,
     rep.degenerateTriangles && `${rep.degenerateTriangles} zero-area tris dropped`,
+    rep.booleanFallbacks && `${rep.booleanFallbacks} boolean fallbacks`,
+    rep.droppedPrimitives && `⚠ ${rep.droppedPrimitives} primitives DROPPED`,
   ].filter(Boolean);
   statsEl.textContent =
     `${regions.length} net regions · ${tris.toLocaleString()} triangles\n` +
@@ -334,12 +336,18 @@ solveBtn.addEventListener("click", () => {
 });
 
 function loadBoard(text: string): void {
-  pcb = parsePcb(text);
-  selectedNet = null;
-  const layers = [...new Set([...pcb.tracks.map((t) => t.layer), ...pcb.zones.map((z) => z.layer)])]
-    .filter((l) => l.endsWith(".Cu")).sort();
-  layerSel.replaceChildren(...layers.map((l) => new Option(l, l)));
-  rebuildMesh();
+  try {
+    pcb = parsePcb(text);
+    selectedNet = null;
+    const layers = [...new Set([...pcb.tracks.map((t) => t.layer), ...pcb.zones.map((z) => z.layer)])]
+      .filter((l) => l.endsWith(".Cu")).sort();
+    layerSel.replaceChildren(...layers.map((l) => new Option(l, l)));
+    rebuildMesh();
+  } catch (e) {
+    // never fail silently — the board didn't load, say so where the user looks
+    statsEl.textContent = `⚠ failed to load board: ${e instanceof Error ? e.message : e}`;
+    console.error(e);
+  }
 }
 
 layerSel.addEventListener("change", rebuildMesh);

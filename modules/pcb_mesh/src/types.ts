@@ -52,6 +52,10 @@ export interface SanitationReport {
   degenerateTriangles: number;
   /** outline vertices removed by Douglas–Peucker simplification (`simplifyTolerance`) */
   simplifiedVertices: number;
+  /** boolean ops that needed the jitter fallback (polygon-clipping robustness) */
+  booleanFallbacks: number;
+  /** primitives dropped because no boolean fallback succeeded — copper may be missing */
+  droppedPrimitives: number;
 }
 
 /** Triangulated copper region — the unit solvers will consume. */
@@ -153,7 +157,16 @@ export function resolveOptions(o: MeshOptions | undefined): ResolvedMeshOptions 
 }
 
 export function emptySanitationReport(): SanitationReport {
-  return { zeroLengthTracks: 0, padShapeFallbacks: 0, degenerateRings: 0, emptyRegions: 0, degenerateTriangles: 0, simplifiedVertices: 0 };
+  return {
+    zeroLengthTracks: 0,
+    padShapeFallbacks: 0,
+    degenerateRings: 0,
+    emptyRegions: 0,
+    degenerateTriangles: 0,
+    simplifiedVertices: 0,
+    booleanFallbacks: 0,
+    droppedPrimitives: 0,
+  };
 }
 
 /** Shoelace signed area of one ring (positive = CCW in a Y-up frame). */
