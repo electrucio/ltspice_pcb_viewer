@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pcb_mesh demo — copper meshing</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; display: grid; grid-template-columns: 280px 1fr; height: 100vh; }
+      aside { padding: 12px; border-right: 1px solid #8884; overflow: auto; font-size: 13px; }
+      aside h1 { font-size: 15px; margin: 0 0 8px; }
+      aside label { display: block; margin: 6px 0; }
+      #stats { margin: 10px 0; padding: 8px; border: 1px solid #8884; border-radius: 6px; white-space: pre-line; }
+      #info { margin: 10px 0; padding: 8px; border: 1px solid #4a90d9; border-radius: 6px; font-size: 11px; line-height: 1.5; overflow-x: auto; }
+      #info .ok { color: #2e9e44; } #info .bad { color: #d33; font-weight: bold; }
+      #nets { margin: 0; padding: 0; list-style: none; }
+      #nets li { padding: 3px 6px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+      #nets li:hover { background: #8882; }
+      #nets li.sel { background: #4a90d922; outline: 1px solid #4a90d9; }
+      #nets .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 6px; flex: none; align-self: center; }
+      main { position: relative; overflow: hidden; }
+      svg { width: 100%; height: 100%; display: block; background: #101014; }
+      .region path { stroke-width: 0.02; }
+      .outline { fill: none; stroke: #ddd; stroke-width: 0.1; }
+      #hover { position: absolute; top: 8px; left: 8px; background: #000a; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <h1>pcb_mesh — copper meshing</h1>
+      <label>Board <input id="file" type="file" accept=".kicad_pcb" /></label>
+      <label>Layer <select id="layer"></select></label>
+      <label>Max edge (mm)
+        <select id="maxedge">
+          <option value="" selected>no refinement</option>
+          <option value="2">2</option>
+          <option value="1">1</option>
+          <option value="0.5">0.5</option>
+          <option value="0.25">0.25 (slow on big pours)</option>
+        </select>
+      </label>
+      <label>Refinement
+        <select id="refine">
+          <option value="ruppert" selected>Ruppert ≥25° guaranteed (WASM)</option>
+          <option value="delaunay">homogeneous Delaunay (cdt2d)</option>
+          <option value="bisect">fast (bisect ear-clip mesh)</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="islandsOnly" /> highlight multi-island copper (per-layer islands &gt; 1)</label>
+      <div id="stats">…</div>
+      <pre id="info" hidden></pre>
+      <ul id="nets"></ul>
+    </aside>
+    <main>
+      <svg id="view"></svg>
+      <div id="hover" hidden></div>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

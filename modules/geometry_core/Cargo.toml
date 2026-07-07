@@ -1,0 +1,17 @@
+[package]
+name = "geometry_core"
+version = "0.1.0"
+edition = "2021"
+description = "Rust/WASM geometry kernel for the PCB parasitic-extraction engine: quality-guaranteed (Ruppert-refined) constrained Delaunay meshing of copper regions."
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+spade = "2"
+
+[profile.release]
+opt-level = 3
+lto = true

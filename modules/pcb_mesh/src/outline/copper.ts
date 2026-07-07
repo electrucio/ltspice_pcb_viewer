@@ -1,0 +1,137 @@
+/**
+ * Copper region extraction: gather every copper primitive of a (layer, net) pair,
+ * boolean-union them into clean polygons-with-holes, and subtract drill holes.
+ *
+ * Drills are physical holes through the whole board, so every drill on a layer is
+ * subtracted from every net's copper on that layer (this also makes NPTH pads —
+ * pad size == drill size — vanish for free).
+ *
+ * Arc tessellation is driven by `chordTolerance` (sagitta bound, per-radius segment
+ * counts via `segmentsForRadius`), with `arcSegments` as a floor — so area accuracy is
+ * a tunable guarantee, not a per-radius accident.
+ *
+ * Everything cleaned up or dropped is counted in a SanitationReport — never silent.
+ *
+ * Booleans use `polygon-clipping` (Martinez–Rueda). Its ring convention is
+ * GeoJSON-closed; results are normalized back to our open-ring convention.
+ */
+
+import pc from "polygon-clipping";
+import type { Pcb, Pad } from "../../../kicad_pcb_viewer/src/parser/pcb.js";
+import type { MultiPolygon, Polygon, Ring, SanitationReport } from "../types.js";
+import { emptySanitationReport, multiPolygonArea, openRing, resolveOptions, type CopperRegion, type MeshOptions } from "../types.js";
+import { padArcRadius, padDrillOutline, padOutline, segmentsForRadius, trackOutline, viaDrillOutline, viaOutline } from "./primitives.js";
+import { simplifyMultiPolygon } from "./simplify.js";
+
+type PcGeom = Parameters<typeof pc.union>[0];
+
+export interface ExtractResult {
+  regions: CopperRegion[];
+  report: SanitationReport;
+}
+
+/** Does a pad put copper on `layer`? (`*.Cu` = every copper layer.) */
+export function padOnLayer(p: Pad, layer: string): boolean {
+  return p.layers.some((l) => l === layer || l === "*.Cu");
+}
+
+/** Copper layers with content, in KiCad stacking order (F.Cu first, B.Cu last). */
+export function copperLayers(pcb: Pcb): string[] {
+  const seen = new Set<string>();
+  for (const t of pcb.tracks) if (t.layer.endsWith(".Cu")) seen.add(t.layer);
+  for (const z of pcb.zones) if (z.layer.endsWith(".Cu")) seen.add(z.layer);
+  for (const f of pcb.footprints)
+    for (const p of f.pads)
+      for (const l of p.layers) if (l.endsWith(".Cu") && !l.startsWith("*")) seen.add(l);
+  const order = (l: string) => (l === "F.Cu" ? 0 : l === "B.Cu" ? 2 : 1);
+  return [...seen].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
+}
+
+/**
+ * All copper regions of the board (or of the layers/nets selected in `options`),
+ * one entry per (layer, net) that actually has copper, plus a sanitation report.
+ */
+export function extractCopper(pcb: Pcb, options?: MeshOptions): ExtractResult {
+  const o = resolveOptions(options);
+  const layers = o.layers ?? copperLayers(pcb);
+  const netFilter = o.nets ? new Set(o.nets) : null;
+  const regions: CopperRegion[] = [];
+  const report = emptySanitationReport();
+  const segs = (radius: number) => Math.max(o.arcSegments, segmentsForRadius(radius, o.chordTolerance));
+
+  const normalize = (mp: ReturnType<typeof pc.union>): MultiPolygon =>
+    mp.map((poly) =>
+      poly
+        .map((ring) => openRing(ring as Ring))
+        .filter((r) => {
+          if (r.length >= 3) return true;
+          report.degenerateRings++;
+          return false;
+        }),
+    ).filter((poly) => poly.length > 0 && poly[0]!.length >= 3);
+
+  for (const layer of layers) {
+    // 1) collect primitive outlines per net
+    const byNet = new Map<string, Polygon[]>();
+    const add = (net: string, ring: Ring) => {
+      if (netFilter && !netFilter.has(net)) return;
+      if (ring.length < 3) return;
+      let list = byNet.get(net);
+      if (!list) byNet.set(net, (list = []));
+      list.push([ring]);
+    };
+
+    for (const t of pcb.tracks)
+      if (t.layer === layer) {
+        if (Math.hypot(t.end.x - t.start.x, t.end.y - t.start.y) < 1e-9) report.zeroLengthTracks++;
+        add(t.net, trackOutline(t, segs(t.width / 2)));
+      }
+    for (const v of pcb.vias)
+      if (v.layers.length === 0 || v.layers.includes(layer)) add(v.net, viaOutline(v, segs(v.size / 2)));
+    for (const f of pcb.footprints)
+      for (const p of f.pads)
+        if (padOnLayer(p, layer)) {
+          if (p.shape === "trapezoid" || p.shape === "custom") report.padShapeFallbacks++;
+          add(p.net, padOutline(p, segs(padArcRadius(p))));
+        }
+    if (o.includeZones)
+      for (const z of pcb.zones)
+        if (z.layer === layer) add(z.net, z.pts.map((p) => [p.x, p.y] as [number, number]));
+
+    // 2) all drills on this layer (net-independent: a hole is a hole)
+    const drills: Polygon[] = [];
+    if (o.subtractDrills) {
+      for (const v of pcb.vias)
+        if (v.layers.length === 0 || v.layers.includes(layer)) drills.push([viaDrillOutline(v, segs(v.drill / 2))]);
+      for (const f of pcb.footprints)
+        for (const p of f.pads) {
+          if (!p.thruHole) continue;
+          const d = padDrillOutline(p, segs(Math.min(p.drill?.w ?? 0, p.drill?.h ?? 0) / 2));
+          if (d) drills.push([d]);
+        }
+    }
+
+    // 3) union per net, minus drills
+    for (const [net, polys] of byNet) {
+      let merged = pc.union(polys[0] as PcGeom, ...(polys.slice(1) as PcGeom[]));
+      if (drills.length) merged = pc.difference(merged as PcGeom, drills as unknown as PcGeom);
+      let polygons = normalize(merged);
+      if (o.simplifyTolerance > 0 && polygons.length) {
+        const s = simplifyMultiPolygon(polygons, o.simplifyTolerance);
+        report.simplifiedVertices += s.removedVertices;
+        polygons = s.polygons;
+      }
+      if (!polygons.length) {
+        report.emptyRegions++;
+        continue;
+      }
+      regions.push({ layer, net, polygons, area: multiPolygonArea(polygons) });
+    }
+  }
+  return { regions, report };
+}
+
+/** Regions only — see `extractCopper` for the variant with the sanitation report. */
+export function extractCopperRegions(pcb: Pcb, options?: MeshOptions): CopperRegion[] {
+  return extractCopper(pcb, options).regions;
+}

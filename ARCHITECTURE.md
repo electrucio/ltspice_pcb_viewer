@@ -72,6 +72,51 @@ F.Cu, pads, vias, F/B.SilkS, Edge.Cuts, refs), tagging `data-net`/`data-ref`.
 `interaction/controller.ts` = pan/zoom + horizontal **mirror** (transform on a content
 group) + per-layer visibility + net/component highlight (`--ksv-highlight`). 3 parser
 tests. Data source is the original `poweramp.kicad_pcb` (not the ibom export).
+**Pad angles are absolute in the file** (footprint rotation included) while pad
+positions are footprint-relative — the parser must NOT add the footprint angle again
+(fixed bug; pinned by a Q7 regression test). Detailed internals + board-model
+contract: `modules/kicad_pcb_viewer/CONTEXT.md`.
+
+### `modules/pcb_mesh` — copper meshing (headless, no web component)
+First building block of a planned 2.5D **parasitic-extraction** engine (R/L/C of real
+board copper; see the module README for scope). Turns a `.kicad_pcb` into per-layer,
+per-net **copper regions** — boolean union of track stadiums + pad shapes + via rings +
+zone fills, minus every drill hole — and triangulates each region into an FEM-ready
+mesh (`buildBoardMesh(pcb, {maxEdgeLength})` → vertices/triangles typed arrays +
+area/quality report). Reuses the PCB viewer's parser and its empirically-locked pad
+rotation by relative import; unlike the viewers it takes two runtime deps
+(`polygon-clipping` for Martinez–Rueda booleans, `earcut` for triangulation) rather
+than hand-rolling geometry kernels. Key invariant (tested): **mesh area == outline
+area** (~1e-13 observed on the poweramp board). Refinement to a target edge length
+defaults to a **homogeneous quality mesh generated directly** (boundary resampled at h,
+hex interior points, constrained Delaunay via `cdt2d`, ≈2·area/h² triangles — poweramp
+B.Cu @1 mm = 36.8k tris in ~2 s), with Rivara-style adaptive bisection as the cheap
+alternative (`refinement: "bisect"`). v1 limits: unrefined meshes are ear-clip (slivers,
+reported via `quality.minAngleDeg`), `cdt2d` is the bottleneck at fine targets on the
+big pour (0.25 mm whole-layer ≈ 45 s; `delaunator`+`constrainautor` or Rust/WASM is the
+upgrade path), arc tracks straightened, no stackup. Ships a **verification endpoint**
+`analyzeRegion(pcb, layer, net)`: composition, per-layer islands/holes, mesh quality
+(angle histogram, sliver count, worst aspect), and the area computed four independent
+ways (union shoelace, Σ triangles, closed-form primitive sum, seeded Monte Carlo
+against the analytic primitives — a tessellation-free oracle). Arc tessellation is
+chord-tolerance-driven; every build carries a `SanitationReport` (zero-length tracks,
+pad fallbacks, vanished NPTH regions, …) and meshes serialize to versioned JSON
+fixtures. 47 vitest tests; own demo (`npm run dev`): all triangles of a layer rendered
+over the board outline, per-net colors, click-to-isolate with a cross-checked info
+panel, multi-island highlight toggle, refinement + strategy selectors, live stats.
+
+### `modules/geometry_core` — Rust → WASM geometry kernel
+The project's numerics beachhead (Rust, `wasm-bindgen`, built with
+`wasm-pack build --release --target web`; `pkg/` untracked — build before use).
+First capability: **quality-guaranteed meshing** via `spade` — constrained Delaunay +
+Ruppert/Chew refinement (min angle 25° target/≥20° accepted, max-area constraint,
+holes excluded by odd winding, Steiner points only on constraint edges → area exactly
+preserved). Consumed by `pcb_mesh` as `refinement: "ruppert"` (async `initRuppert()`
+loads the WASM; the demo falls back to cdt2d when the pkg is missing). Combined with
+`pcb_mesh`'s default Douglas–Peucker outline simplification (0.01 mm bound — KiCad's
+dense fill vertices otherwise seed needless refinement): poweramp B.Cu @ 1 mm =
+**54k triangles, 0 slivers, min ∠ 25°, ~0.3 s** — vs the JS cdt2d path's 38k
+triangles with 31% slivers in 2.1 s. 4 native cargo tests + TS-side invariants.
 
 ### `modules/app` — the integrated application
 Full-screen shell (`index.html` + `src/main.ts`) embedding `<ltspice-kicad-mapper>`:
