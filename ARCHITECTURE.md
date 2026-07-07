@@ -105,6 +105,15 @@ fixtures. 47 vitest tests; own demo (`npm run dev`): all triangles of a layer re
 over the board outline, per-net colors, click-to-isolate with a cross-checked info
 panel, multi-island highlight toggle, refinement + strategy selectors, live stats.
 
+### `modules/analytic_models` — closed-form PCB formulas (M0, headless)
+Pure zero-dep TS, **SI units only**; the oracle/estimate/sanity-monitor layer of the
+parasitic-extraction plan, built just-in-time per solver. Current slice: **DC
+resistance** (IACS resistivity + temperature model, ρL/(W·t), counting-squares with
+Jaeger's 0.56 sq/corner, plated via-barrel annulus R). 14 tests with fixtures
+transcribed from `~/git/pcb-toolkit` (reverse-engineered Saturn PCB Toolkit — the
+independent cross-check implementation) plus hand-derived and property tests.
+Future slices (Hammerstad–Jensen, fringing C, Grover/Bessel) land with M5–M7.
+
 ### `modules/geometry_core` — Rust → WASM geometry kernel
 The project's numerics beachhead (Rust, `wasm-bindgen`, built with
 `wasm-pack build --release --target web`; `pkg/` untracked — build before use).

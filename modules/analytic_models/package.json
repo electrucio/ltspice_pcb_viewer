@@ -1,0 +1,34 @@
+{
+  "name": "analytic_models",
+  "version": "0.1.0",
+  "description": "M0 of the parasitic-extraction engine: closed-form/empirical PCB formulas (pure TS, zero deps). Roles: test oracle for the field solvers, instant estimates, runtime sanity monitor. Currently: the DC-resistance slice.",
+  "type": "module",
+  "main": "./dist/analytic_models.js",
+  "module": "./dist/analytic_models.js",
+  "exports": {
+    ".": {
+      "import": "./dist/analytic_models.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "pcb",
+    "resistance",
+    "analytic",
+    "eda"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0",
+    "vitest": "^4.1.9"
+  }
+}

@@ -22,8 +22,20 @@ Current status:
   `modules/geometry_core` (Rust→WASM quality mesher). Copper extraction, boolean
   union, drill subtraction, outline simplification, three triangulation strategies,
   quality metrics, verification endpoint, serialization.
-- **M0, M3–M8** — not started. M0 (analytic oracle) exists only as the closed-form
-  primitive areas inside the verification layer.
+- **M0 (analytic oracle)** — `modules/analytic_models`, built **just-in-time in
+  solver order**. Current slice: DC resistance (IACS ρ/α + temperature model,
+  ρL/(W·t), counting-squares with Jaeger's 0.56 sq per 90° corner, plated via-barrel
+  annulus R). 14 tests. Cross-check resource: **`~/git/pcb-toolkit`** (sibling clone —
+  a reverse-engineered Saturn PCB Toolkit v8.44 in Rust, validated against Saturn's
+  help-PDF vectors; run its CLI with `--json` to mint fixtures). It also covers the
+  future M5–M7 oracle formulas (decompiled Hammerstad–Jensen, via coaxial model,
+  spiral inductors), largely replacing the need to chase the original papers.
+  circuitcalculator.com confirmed as a second formula-family reference (same R(T)
+  model, but referenced at 25 °C where Saturn/IACS use 20 °C — our API takes T
+  explicitly). Remaining M0 slices land with their solvers: Hammerstad–Jensen/Wheeler
+  (M5), fringing C (M6), Grover/via-L/Bessel (M7).
+- **M3–M8** — not started. Next: M4 DC-resistance FEM (its oracle now exists); mesh
+  prerequisites (pad-terminal tagging, refinement levels) still gate it.
 
 ## 2. Module: `modules/pcb_mesh` (TypeScript)
 
@@ -186,6 +198,8 @@ demo falls back to cdt2d when missing). Toolchain via `brew install rustup wasm-
 ARCHITECTURE.md                       repo-wide map (updated)
 PARASITICS_CONTEXT.md                 this file
 modules/kicad_pcb_viewer/CONTEXT.md   parser/board-model contract deep-dive
+modules/analytic_models/README.md     M0 oracle: slices, sources, verification
+~/git/pcb-toolkit                     sibling clone: Saturn reimplementation (fixture mint)
 modules/pcb_mesh/README.md            pipeline, strategies, invariants, numbers
 modules/geometry_core/README.md       kernel API, build, measurements
 modules/pcb_mesh/scripts/             profile-mesh.ts, bench-ruppert*.ts (dev tools)
