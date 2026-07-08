@@ -12,8 +12,9 @@ import { meshRegion } from "../src/mesh/triangulate.js";
 import { emptySanitationReport, resolveOptions } from "../src/types.js";
 import { analyzeRegion } from "../src/verify.js";
 import { initRuppert, ruppertReady } from "../src/mesh/ruppert.js";
-import type { solveNetResistance } from "../../solver_rdc/src/solve.js";
+import type { LayerField } from "../../solver_rdc/src/solve.js";
 import { solveWithErrorEstimate } from "../../solver_rdc/src/richardson.js";
+import { sheetResistance } from "../../analytic_models/src/index.js";
 import { estimateResistance } from "../../solver_rdc/src/estimate.js";
 import type { BoardMesh, RegionMesh, SanitationReport } from "../src/types.js";
 
@@ -32,6 +33,10 @@ const padASel = document.getElementById("padA") as HTMLSelectElement;
 const padBSel = document.getElementById("padB") as HTMLSelectElement;
 const solveBtn = document.getElementById("solveBtn") as HTMLButtonElement;
 const rresEl = document.getElementById("rres")!;
+const currentAEl = document.getElementById("currentA") as HTMLInputElement;
+const overlayModeEl = document.getElementById("overlayMode") as HTMLSelectElement;
+const powerEl = document.getElementById("power")!;
+const flowLegendEl = document.getElementById("flowlegend")!;
 const netsEl = document.getElementById("nets")!;
 const hoverEl = document.getElementById("hover")!;
 const SVGNS = "http://www.w3.org/2000/svg";
@@ -537,20 +542,40 @@ padBSel.addEventListener("change", updatePadMarkers);
 
 function clearFlow(): void {
   svg.querySelector("#flow")?.remove();
+  lastSolve = null;
+  powerEl.textContent = "";
+  flowLegendEl.textContent = "";
 }
 
-function renderFlow(field: NonNullable<ReturnType<typeof solveNetResistance>["field"]>): void {
-  clearFlow();
+let lastSolve: { field: LayerField[]; resistance: number } | null = null;
+// 98th-percentile overlay maxima at 1 V drive: |J| in A/mm and areal power J²·Rs in W/mm²
+let overlayMax1V = { J: 0, P: 0 };
+
+const layerRs = (layer: string): number => sheetResistance((copperThicknessMm(pcb, layer) ?? 0.035) * 1e-3);
+
+function renderFlow(field: LayerField[], resistance: number): void {
+  svg.querySelector("#flow")?.remove();
+  lastSolve = { field, resistance };
+  const mode = overlayModeEl.value as "J" | "P";
   const g = document.createElementNS(SVGNS, "g");
   g.id = "flow";
   g.setAttribute("pointer-events", "none");
-  // robust scale: 98th percentile of nonzero |J|
-  const all = field.flatMap((f) => [...f.currentDensity].filter((j) => j > 0)).sort((a, b) => a - b);
-  const jMax = all[Math.min(all.length - 1, Math.floor(all.length * 0.98))] || 1;
+  // robust scale: 98th percentile of the nonzero overlay quantity (heat ∝ J², so the
+  // power mode squares before scaling — an honest picture of where dissipation lives)
+  const valOf = (j: number, rs: number): number => (mode === "P" ? j * j * rs : j);
+  const pct98 = (vals: number[]): number => {
+    vals.sort((a, b) => a - b);
+    return vals[Math.min(vals.length - 1, Math.floor(vals.length * 0.98))] || 1;
+  };
+  overlayMax1V = {
+    J: pct98(field.flatMap((f) => [...f.currentDensity].filter((j) => j > 0))),
+    P: pct98(field.flatMap((f) => { const rs = layerRs(f.layer); return [...f.currentDensity].filter((j) => j > 0).map((j) => j * j * rs); })),
+  };
+  const vMax = mode === "P" ? overlayMax1V.P : overlayMax1V.J;
   for (const f of field) {
+    const rs = layerRs(f.layer);
     for (let t = 0; t < f.triangles.length; t += 3) {
-      const j = f.currentDensity[t / 3]!;
-      const rel = Math.min(1, j / jMax);
+      const rel = Math.min(1, valOf(f.currentDensity[t / 3]!, rs) / vMax);
       if (rel < 0.03) continue;
       const [a, b, c] = [f.triangles[t]! * 2, f.triangles[t + 1]! * 2, f.triangles[t + 2]! * 2];
       const p = document.createElementNS(SVGNS, "path");
@@ -565,7 +590,26 @@ function renderFlow(field: NonNullable<ReturnType<typeof solveNetResistance>["fi
   // keep markers on top
   const markers = svg.querySelector("#padmarkers");
   if (markers) svg.appendChild(markers);
+  updatePowerUI();
 }
+
+/** P = I²R and the overlay legend in real units at the entered current (linear → scale by I, I²). */
+function updatePowerUI(): void {
+  if (!lastSolve) return;
+  const I = Math.max(0, Number(currentAEl.value) || 0);
+  const R = lastSolve.resistance;
+  const s = I * R; // 1 V-drive → I amps scale factor for J
+  const P = I * I * R;
+  const fmtP = (w: number) => (w >= 1 ? `${w.toFixed(2)} W` : `${(w * 1000).toFixed(2)} mW`);
+  powerEl.textContent = `at ${I} A: P = ${fmtP(P)} · peak ${(overlayMax1V.P * s * s * 1000).toFixed(2)} mW/mm² (98th pct)`;
+  flowLegendEl.textContent =
+    overlayModeEl.value === "P"
+      ? `overlay: 0 → ${(overlayMax1V.P * s * s * 1000).toFixed(2)} mW/mm² (J²·Rs at ${I} A)`
+      : `overlay: 0 → ${(overlayMax1V.J * s).toFixed(2)} A/mm (|J| at ${I} A)`;
+}
+
+overlayModeEl.addEventListener("change", () => { if (lastSolve) renderFlow(lastSolve.field, lastSolve.resistance); });
+currentAEl.addEventListener("input", updatePowerUI);
 
 solveBtn.addEventListener("click", () => {
   if (!selectedNet) return;
@@ -599,7 +643,7 @@ solveBtn.addEventListener("click", () => {
           ? `\nvia share: ${r.viaCurrents.slice(0, 3).map((v) => `${(Math.abs(v.current) * r.resistance * 100).toFixed(0)}% ${v.id} ${v.fromLayer}↔${v.toLayer}`).join(", ")}${r.viaCurrents.length > 3 ? ` (+${r.viaCurrents.length - 3} more)` : ""}`
           : "") +
         (r.skippedTerminals.length ? `\n⚠ skipped terminals: ${r.skippedTerminals.join(", ")}` : "");
-      if (r.field) renderFlow(r.field);
+      if (r.field) renderFlow(r.field, r.resistance);
     } catch (e) {
       rresEl.textContent = String(e instanceof Error ? e.message : e);
       clearFlow();

@@ -22,6 +22,8 @@
       #solve { margin: 10px 0; padding: 8px; border: 1px solid #2e9e44; border-radius: 6px; }
       #solve select { max-width: 90px; }
       #rres { margin-top: 6px; white-space: pre-line; font-size: 12px; }
+      #power { margin-top: 4px; white-space: pre-line; font-size: 12px; }
+      #flowlegend { margin-top: 4px; font-size: 11px; opacity: 0.85; }
       #info .ok { color: #2e9e44; } #info .bad { color: #d33; font-weight: bold; }
       #nets { margin: 0; padding: 0; list-style: none; }
       #nets li { padding: 3px 6px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
@@ -63,8 +65,17 @@
         <b>DC resistance</b>
         <label>from <select id="padA"></select></label>
         <label>to <select id="padB"></select></label>
+        <label>current (A) <input id="currentA" type="number" value="1" min="0" step="0.1" style="width:70px" /></label>
+        <label>overlay
+          <select id="overlayMode">
+            <option value="J" selected>|J| (current)</option>
+            <option value="P">J²·Rs (power)</option>
+          </select>
+        </label>
         <button id="solveBtn">Solve R</button>
         <div id="rres"></div>
+        <div id="power"></div>
+        <div id="flowlegend"></div>
       </div>
       <pre id="info" hidden></pre>
       <ul id="nets"></ul>
