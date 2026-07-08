@@ -226,6 +226,14 @@ demo falls back to cdt2d when missing). Toolchain via `brew install rustup wasm-
   copper we render but cannot mesh yet (counted as `copperTextIgnored`);
   via TERMINALS use the annulus midline circle (r = (drill+size)/4), never an inset
   of the outer ring (vias are wider than their traces);
+  **KiCad has TWO net-reference dialects** — name-style (`(net "GND")` on every
+  element; poweramp fixture) and number-style (root table `(net 4 "+3V3")`, elements
+  say `(net 4)`, but zones ALSO carry `(net_name "+3V3")`; jetson, openair-max). The
+  parser canonicalizes every reference to the NAME via the root table (only id+name
+  rows count — single-value root decls are the name dialect's own net list). Without
+  this the same net splits in two — openair-max +3V3 had tracks under "4" and its
+  1549 mm² In1.Cu plane under "+3V3" → "not connected" C13.2↔R8.2 (now 60.5 mΩ) and
+  double-extracted, "empty-looking" B.Cu;
   **via-in-pad is common on dense boards** (jetson: through via stacked at the center
   of an SMD pad, J18.D21) — the via merges into the pad's terminal on that layer, so
   cross-layer supernode stitching must union by terminal **member ids**

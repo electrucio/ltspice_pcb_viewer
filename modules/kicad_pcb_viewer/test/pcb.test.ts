@@ -69,6 +69,40 @@ describe("board text (gr_text)", () => {
   });
 });
 
+describe("net normalization (number-dialect files)", () => {
+  it("maps numeric net references through the root net table to names", () => {
+    // openair-max style: elements say `(net 4)`, zones say `(net_name "+3V3")` —
+    // without canonicalization the same net splits and reports disconnected copper
+    const text = `(kicad_pcb (version 20241229) (generator "pcbnew")
+      (net 0 "")
+      (net 4 "+3V3")
+      (footprint "R" (at 5 5)
+        (property "Reference" "R1" (at 0 0) (layer "F.SilkS"))
+        (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu") (net 4 "+3V3"))
+        (pad "2" smd rect (at 2 0) (size 1 1) (layers "F.Cu") (net 0 "")))
+      (segment (start 5 5) (end 9 5) (width 0.3) (layer "F.Cu") (net 4))
+      (via (at 9 5) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") (net 4))
+      (zone (net 4) (net_name "+3V3") (layer "B.Cu")
+        (filled_polygon (layer "B.Cu") (pts (xy 8 4) (xy 10 4) (xy 10 6) (xy 8 6))))
+    )`;
+    const p = parsePcb(text);
+    expect(p.tracks[0]!.net).toBe("+3V3");
+    expect(p.vias[0]!.net).toBe("+3V3");
+    expect(p.zones[0]!.net).toBe("+3V3");
+    expect(p.footprints[0]!.pads[0]!.net).toBe("+3V3");
+    expect(p.footprints[0]!.pads[1]!.net).toBe(""); // net 0 = unconnected
+    expect(p.nets).toEqual(["+3V3"]);
+  });
+
+  it("leaves name-style references untouched (poweramp dialect)", () => {
+    // the fixture at module scope IS the name dialect (single-value root decls like
+    // `(net "/POW1")` must NOT be treated as an id table) — names survive verbatim
+    expect(pcb.nets).toContain("/POW1");
+    expect(pcb.tracks.some((t) => t.net === "/POW1")).toBe(true);
+    expect(pcb.tracks.some((t) => t.net === "Net-(PREAMP1-Pin_1)")).toBe(true);
+  });
+});
+
 describe("copper stack order (multilayer)", () => {
   it("uses the declaration's textual order, not the legacy numeric ids", () => {
     // KiCad ids are stable, not ordered: B.Cu is always 2, inner layers 4, 6, …

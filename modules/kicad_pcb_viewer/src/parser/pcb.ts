@@ -1,8 +1,9 @@
 /**
  * Parser for KiCad `.kicad_pcb` (S-expression). Produces a flat, render-ready model in
  * board coordinates (mm, Y down): board edges, copper tracks, vias, zone fills, and
- * footprints with their pads + silkscreen graphics + reference label. Nets are referenced
- * by name string (KiCad 9/10 format), so no separate net table is needed.
+ * footprints with their pads + silkscreen graphics + reference label. Net references are
+ * CANONICALIZED to the net NAME: number-style files (`(net 4)` on elements, root table
+ * `(net 4 "+3V3")`) are mapped through the table; name-style files pass through as-is.
  */
 
 import { parseSExpr, child, children, childStr, type SNode } from "./sexpr.js";
@@ -350,6 +351,32 @@ export function parsePcb(text: string, sign: number = ROT_SIGN): Pcb {
         }
       }
     }
+  }
+
+  // Net normalization: KiCad has two net-reference dialects. Name-style files put
+  // the net NAME everywhere (`(net "GND")` on segments — poweramp fixture). Number-
+  // style files (jetson, openair-max) declare a table at root — `(net 4 "+3V3")` —
+  // and elements reference `(net 4)`, while zones ALSO carry `(net_name "+3V3")`.
+  // Without canonicalization the same net splits in two ("4" tracks vs "+3V3" zone
+  // fills) and nets falsely report as disconnected. Map every reference to the NAME.
+  // Only id+name table rows count: single-value root decls (`(net "GND")`) are the
+  // name dialect's own list, not a table.
+  const netById = new Map<string, string>();
+  for (const n of children(root, "net")) {
+    if (n.values.length >= 2) netById.set(String(n.values[0]), String(n.values[1]));
+  }
+  if (netById.size) {
+    const canon = (s: string): string => netById.get(s) ?? s;
+    for (const f of footprints) for (const p of f.pads) p.net = canon(p.net);
+    for (const t of tracks) t.net = canon(t.net);
+    for (const v of vias) v.net = canon(v.net);
+    for (const z of zones) z.net = canon(z.net);
+    for (const g of graphics) if (g.net !== undefined) g.net = canon(g.net);
+    netSet.clear();
+    for (const f of footprints) for (const p of f.pads) if (p.net) netSet.add(p.net);
+    for (const t of tracks) if (t.net) netSet.add(t.net);
+    for (const z of zones) if (z.net) netSet.add(z.net);
+    for (const g of graphics) if (g.net) netSet.add(g.net);
   }
 
   // bounding box (board outline preferred, else everything)
