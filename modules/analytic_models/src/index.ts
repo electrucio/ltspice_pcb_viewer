@@ -24,3 +24,5 @@ export {
 export type { TraceGeometry, ViaBarrelGeometry } from "./dc.js";
 export { microstrip, z0Homogeneous, epsEffStatic, deltaU, ETA0 } from "./microstrip.js";
 export type { MicrostripInput, MicrostripResult } from "./microstrip.js";
+export { stripline, striplineCohnExact } from "./stripline.js";
+export type { StriplineInput, StriplineResult } from "./stripline.js";

@@ -111,7 +111,19 @@ Current status:
   read it straight off the paper figure and CONFIRMED the transcribed form.
   (KiCad uses Kirschning–Jansen dispersion, so there's still no independent
   NUMERIC cross for (10)–(12) — only the limit tests.)
-- **M5 next**: Wheeler 1977 stripline, loss models (HJ eqs 33–38 + roughness),
+- **M5 stripline (analytic_models/src/stripline.ts)**: TWO models — Cohn 1954
+  EXACT conformal mapping for the centered zero-t strip (elliptic K via AGM;
+  computed as agm(1,sech)/agm(1,tanh) so wide strips don't lose k′ to rounding)
+  as the in-repo oracle, plus the practical Cohn-lineage offset+thickness model
+  (wide-strip fringing / narrow-strip equivalent-diameter, offset = parallel
+  combination of the two mirrored symmetric problems). 180-row fixture grid
+  matches KiCad 9's stripline transcription to 1e-12 (1e-8 on degenerate
+  t→0 rows — the reference NaNs at exactly t=0, and log(s²/(s−t)²−1)
+  cancellation amplifies rounding noise); practical vs EXACT within 1.5% at
+  t=0. NOTE: Wheeler 1977 (the paper we hold) is a MICROSTRIP source (HJ cite
+  it for thickness) — stripline's canonical source is Cohn; label fixed.
+  50 Ω FR4 stripline: w≈0.40 mm in b=1 mm (εr 4.5) → 50.35 Ω.
+- **M5 next**: loss models (HJ eqs 33–38 + roughness, stripline losses),
   net-segment classifier (microstrip vs stripline from stackup), per-segment
   RLGC output contract. Then app-level integration, plane-net fast preview.
 
