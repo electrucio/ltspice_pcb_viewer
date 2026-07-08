@@ -360,12 +360,14 @@ function render(): void {
     l.setAttribute("class", "outline");
     svg.appendChild(l);
   }
-  // per-layer groups so the opacity sliders act on whole layers (B.Cu at the bottom)
+  // per-layer groups so the opacity sliders act on whole layers (B.Cu at the bottom);
+  // the sliders only apply in all-layers mode — a single layer always shows full-on
+  const layers = [...activeLayers()].reverse();
   const layerGroups = new Map<string, SVGGElement>();
-  for (const layer of [...activeLayers()].reverse()) {
+  for (const layer of layers) {
     const lg = document.createElementNS(SVGNS, "g");
     lg.dataset.meshlayer = layer;
-    lg.setAttribute("opacity", String(layerOpacity.get(layer) ?? 1));
+    lg.setAttribute("opacity", layers.length > 1 ? String(layerOpacity.get(layer) ?? 1) : "1");
     layerGroups.set(layer, lg);
     svg.appendChild(lg);
   }
