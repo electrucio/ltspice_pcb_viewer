@@ -9,12 +9,12 @@ import { wheelZoomFactor } from "../../kicad_pcb_viewer/src/interaction/controll
 import { parsePcb, type Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
 import { extractCopper } from "../src/outline/copper.js";
 import { meshRegion } from "../src/mesh/triangulate.js";
-import { resolveOptions } from "../src/types.js";
+import { emptySanitationReport, resolveOptions } from "../src/types.js";
 import { analyzeRegion } from "../src/verify.js";
 import { initRuppert, ruppertReady } from "../src/mesh/ruppert.js";
 import { solveNetResistance } from "../../solver_rdc/src/solve.js";
 import { estimateResistance } from "../../solver_rdc/src/estimate.js";
-import type { BoardMesh, RegionMesh } from "../src/types.js";
+import type { BoardMesh, RegionMesh, SanitationReport } from "../src/types.js";
 
 type Refinement = "ruppert" | "delaunay" | "bisect";
 
@@ -105,50 +105,78 @@ function rebuildMesh(): void {
   void rebuildMeshAsync();
 }
 
+// per-(board, layer, options) mesh cache: switching layers (or back to a layer
+// already built) must not re-extract or re-mesh anything
+let boardGen = 0; // bumped on every board load — invalidates the cache wholesale
+const meshCache = new Map<string, { regions: RegionMesh[]; report: SanitationReport }>();
+let renderedKey = ""; // what the SVG currently shows — identical key ⇒ skip repaint
+
 async function rebuildMeshAsync(): Promise<void> {
   const seq = ++buildSeq;
   try {
     const maxEdge = maxEdgeSel.value ? Number(maxEdgeSel.value) : undefined;
     const refinement = refineSel.value as Refinement;
-    const opts = { layers: activeLayers(), maxEdgeLength: maxEdge, refinement, arcSegments: 24 };
-
-    showProgress("extracting copper…");
-    await paint();
+    const layers = activeLayers();
     const t0 = performance.now();
-    const { regions: copper, report } = extractCopper(pcb, opts);
-    const tExtract = performance.now() - t0;
-    console.log(`[pcb_mesh] extracted ${copper.length} copper regions on ${opts.layers.join("+")} in ${tExtract.toFixed(0)} ms`);
 
-    const o = resolveOptions(opts);
-    const regions: typeof mesh.regions = [];
-    let slowest = { ms: 0, label: "" };
-    let lastPaint = performance.now();
-    for (let i = 0; i < copper.length; i++) {
-      if (seq !== buildSeq) return; // superseded by a newer rebuild — abandon quietly
-      const r = copper[i]!;
-      const tr = performance.now();
-      regions.push(meshRegion(r, o.maxEdgeLength, o.refinement));
-      const trMs = performance.now() - tr;
-      if (trMs > slowest.ms) slowest = { ms: trMs, label: `${r.layer}/${r.net || "(no net)"}` };
-      if (performance.now() - lastPaint > 100) {
-        showProgress(`meshing… ${i + 1}/${copper.length} regions`, (i + 1) / copper.length, `${r.layer} · ${r.net || "(unconnected)"}`);
-        await paint();
-        lastPaint = performance.now();
+    const perLayer: Array<{ regions: RegionMesh[]; report: SanitationReport }> = [];
+    const keys: string[] = [];
+    for (let li = 0; li < layers.length; li++) {
+      const layer = layers[li]!;
+      const key = `${boardGen}|${layer}|${maxEdge ?? "∞"}|${refinement}`;
+      keys.push(key);
+      const cached = meshCache.get(key);
+      if (cached) {
+        console.log(`[pcb_mesh] ${layer}: mesh cache hit`);
+        perLayer.push(cached);
+        continue;
       }
+      showProgress(`extracting copper on ${layer}…`);
+      await paint();
+      if (seq !== buildSeq) return; // superseded by a newer rebuild — abandon quietly
+      const tl = performance.now();
+      const opts = { layers: [layer], maxEdgeLength: maxEdge, refinement, arcSegments: 24 };
+      const { regions: copper, report } = extractCopper(pcb, opts);
+      const tExtract = performance.now() - tl;
+      const o = resolveOptions(opts);
+      const regions: RegionMesh[] = [];
+      let slowest = { ms: 0, label: "" };
+      let lastPaint = performance.now();
+      for (let i = 0; i < copper.length; i++) {
+        if (seq !== buildSeq) return;
+        const r = copper[i]!;
+        const tr = performance.now();
+        regions.push(meshRegion(r, o.maxEdgeLength, o.refinement));
+        const trMs = performance.now() - tr;
+        if (trMs > slowest.ms) slowest = { ms: trMs, label: r.net || "(no net)" };
+        if (performance.now() - lastPaint > 100) {
+          showProgress(`meshing ${layer}… ${i + 1}/${copper.length} regions`, (i + 1) / copper.length, `${r.net || "(unconnected)"}${layers.length > 1 ? ` · layer ${li + 1}/${layers.length}` : ""}`);
+          await paint();
+          lastPaint = performance.now();
+        }
+      }
+      report.degenerateTriangles = regions.reduce((s, r) => s + r.degenerateTriangles, 0);
+      report.refinementFallbacks = regions.reduce((s, r) => s + (r.refinementFellBack ? 1 : 0), 0);
+      console.log(`[pcb_mesh] ${layer}: extracted ${copper.length} regions in ${tExtract.toFixed(0)} ms, meshed in ${(performance.now() - tl - tExtract).toFixed(0)} ms (slowest: ${slowest.label} ${slowest.ms.toFixed(0)} ms)`);
+      meshCache.set(key, { regions, report });
+      while (meshCache.size > 12) meshCache.delete(meshCache.keys().next().value!); // bound memory
+      perLayer.push({ regions, report });
     }
     if (seq !== buildSeq) return;
-    report.degenerateTriangles = regions.reduce((s, r) => s + r.degenerateTriangles, 0);
-    report.refinementFallbacks = regions.reduce((s, r) => s + (r.refinementFellBack ? 1 : 0), 0);
-    mesh = { layers: opts.layers, regions, report };
-    const ms = performance.now() - t0;
-    console.log(`[pcb_mesh] meshed ${regions.length} regions in ${(ms - tExtract).toFixed(0)} ms (slowest: ${slowest.label} ${slowest.ms.toFixed(0)} ms)`);
-    finishRebuild(ms);
+
+    const report = emptySanitationReport();
+    for (const pl of perLayer)
+      for (const k of Object.keys(report) as Array<keyof SanitationReport>) report[k] += pl.report[k];
+    mesh = { layers, regions: perLayer.flatMap((pl) => pl.regions), report };
+    finishRebuild(performance.now() - t0, keys.join(" "));
   } catch (e) {
     if (seq === buildSeq) showError("Meshing failed", e);
   }
 }
 
-function finishRebuild(ms: number): void {
+let statsOpen = false; // the details fold state survives rebuilds
+
+function finishRebuild(ms: number, key: string): void {
   const regions = mesh.regions;
   const tris = regions.reduce((s, r) => s + r.quality.triangleCount, 0);
   const slivers = regions.reduce((s, r) => s + r.quality.sliverCount, 0);
@@ -167,17 +195,33 @@ function finishRebuild(ms: number): void {
     rep.droppedPrimitives && `⚠ ${rep.droppedPrimitives} primitives DROPPED`,
     rep.refinementFallbacks && `⚠ ${rep.refinementFallbacks} region(s) fell back to unguaranteed mesh`,
   ].filter(Boolean);
-  statsEl.textContent =
-    `${regions.length} net regions · ${tris.toLocaleString()} triangles\n` +
+
+  // one always-visible summary line; everything else folds away (it gets huge)
+  statsEl.replaceChildren();
+  const summaryLine = document.createElement("div");
+  summaryLine.textContent = `${regions.length} net regions · ${tris.toLocaleString()} triangles · ${ms.toFixed(0)} ms`;
+  const det = document.createElement("details");
+  det.open = statsOpen;
+  det.addEventListener("toggle", () => (statsOpen = det.open));
+  const sum = document.createElement("summary");
+  sum.textContent = "details";
+  const body = document.createElement("div");
+  body.textContent =
     `copper: ${area.toFixed(1)} mm²\n` +
     `area drift (mesh vs outline): ${worstDrift.toExponential(1)}\n` +
-    `slivers (<20°): ${slivers.toLocaleString()} · built in ${ms.toFixed(0)} ms\n` +
-    `multi-island nets on this layer: ${multiIsland.length ? multiIsland.map((r) => `${r.net || "(unconnected)"}×${r.islands}`).join(", ") : "none"}` +
+    `slivers (<20°): ${slivers.toLocaleString()}\n` +
+    `multi-island nets: ${multiIsland.length ? multiIsland.map((r) => `${r.net || "(unconnected)"}×${r.islands}`).join(", ") : "none"}` +
     (repParts.length ? `\nsanitation: ${repParts.join(", ")}` : "");
-  render();
-  renderNetList();
-  renderInfo();
-  renderOpacitySliders();
+  det.append(sum, body);
+  statsEl.append(summaryLine, det);
+
+  if (key !== renderedKey) {
+    renderedKey = key;
+    render();
+    renderNetList();
+    renderInfo();
+    renderOpacitySliders();
+  }
 }
 
 function renderOpacitySliders(): void {
@@ -329,15 +373,13 @@ function render(): void {
     const g = document.createElementNS(SVGNS, "g");
     g.setAttribute("class", "region");
     g.dataset.net = r.net;
-    const active = islandsOnlyEl.checked ? r.islands > 1 : selectedNet === null || selectedNet === r.net;
+    g.dataset.islands = String(r.islands);
     const c = color(r.net);
     for (const d of trianglePaths(r)) {
       const p = document.createElementNS(SVGNS, "path");
       p.setAttribute("d", d);
       p.setAttribute("fill", c);
-      p.setAttribute("fill-opacity", active ? "0.35" : "0.05");
       p.setAttribute("stroke", c);
-      p.setAttribute("stroke-opacity", active ? "0.9" : "0.1");
       g.appendChild(p);
     }
     g.addEventListener("mousemove", () => {
@@ -347,10 +389,41 @@ function render(): void {
         (r.islands > 1 ? ` — ${r.islands} islands on this layer` : "");
     });
     g.addEventListener("mouseleave", () => (hoverEl.hidden = true));
-    g.addEventListener("click", () => selectNet(selectedNet === r.net ? null : r.net));
     (layerGroups.get(r.layer) ?? svg).appendChild(g);
   }
+  applySelection();
 }
+
+/** Dim/undim in place — no SVG rebuild on selection (281k-triangle boards repaint slowly). */
+function applySelection(): void {
+  for (const g of svg.querySelectorAll<SVGGElement>("g.region")) {
+    const net = g.dataset.net ?? "";
+    const islands = Number(g.dataset.islands ?? "1");
+    const active = islandsOnlyEl.checked ? islands > 1 : selectedNet === null || selectedNet === net;
+    for (const p of g.children) {
+      p.setAttribute("fill-opacity", active ? "0.35" : "0.05");
+      p.setAttribute("stroke-opacity", active ? "0.9" : "0.1");
+    }
+  }
+}
+
+// net selection by click: of ALL regions under the cursor (stacked layers in
+// all-layers mode), pick the one on the layer with the HIGHEST opacity slider —
+// what you see brightest is what you select
+svg.addEventListener("click", (e) => {
+  const hits = document.elementsFromPoint(e.clientX, e.clientY);
+  const cands: Array<{ net: string; layer: string }> = [];
+  for (const el of hits) {
+    const g = el.closest?.("g.region") as SVGGElement | null;
+    if (!g || g.dataset.net === undefined) continue;
+    const layer = (g.parentElement as SVGGElement | null)?.dataset?.meshlayer ?? "";
+    if (!cands.some((c) => c.net === g.dataset.net && c.layer === layer)) cands.push({ net: g.dataset.net!, layer });
+  }
+  if (!cands.length) return;
+  cands.sort((a, b) => (layerOpacity.get(b.layer) ?? 1) - (layerOpacity.get(a.layer) ?? 1));
+  const net = cands[0]!.net;
+  selectNet(selectedNet === net ? null : net);
+});
 
 function renderNetList(): void {
   netsEl.replaceChildren();
@@ -372,7 +445,7 @@ function renderNetList(): void {
 
 function selectNet(net: string | null): void {
   selectedNet = net;
-  render();
+  applySelection();
   renderNetList();
   renderInfo();
   renderSolvePanel();
@@ -531,6 +604,9 @@ function loadBoard(text: string, name = "board"): void {
     console.log(`[pcb_mesh] parsed ${name} (${(text.length / 1e6).toFixed(1)} MB) in ${(performance.now() - t0).toFixed(0)} ms — ${pcb.footprints.length} footprints, ${pcb.tracks.length} tracks, ${pcb.vias.length} vias, ${pcb.zones.length} zone fills, ${pcb.nets.length} nets`);
     selectedNet = null;
     vbInitialized = false; // new board → fit view
+    boardGen++; // invalidate the per-layer mesh cache
+    meshCache.clear();
+    renderedKey = "";
     const layers = [...new Set([...pcb.tracks.map((t) => t.layer), ...pcb.zones.map((z) => z.layer), ...pcb.footprints.flatMap((f) => f.pads.flatMap((p) => p.layers)), ...pcb.graphics.map((g) => g.layer)])]
       .filter((l) => l.endsWith(".Cu") && !l.startsWith("*") && l !== "F&B.Cu")
       .sort((a, b) => (a === "F.Cu" ? -1 : b === "F.Cu" ? 1 : a === "B.Cu" ? 1 : b === "B.Cu" ? -1 : a.localeCompare(b)));
@@ -545,7 +621,7 @@ function loadBoard(text: string, name = "board"): void {
 layerSel.addEventListener("change", rebuildMesh);
 maxEdgeSel.addEventListener("change", rebuildMesh);
 refineSel.addEventListener("change", rebuildMesh);
-islandsOnlyEl.addEventListener("change", render);
+islandsOnlyEl.addEventListener("change", applySelection);
 fileInput.addEventListener("change", async () => {
   const f = fileInput.files?.[0];
   if (!f) return;
