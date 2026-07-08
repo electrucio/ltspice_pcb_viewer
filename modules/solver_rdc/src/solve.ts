@@ -3,19 +3,19 @@
  *
  * Model: each copper layer of the net is a 2D sheet-conductance FEM domain (mesh from
  * pcb_mesh's buildTerminalMesh — pads/vias are equipotential terminal holes). Layers
- * couple through supernodes: every terminal MEMBER id that appears on several layers
- * (THT pads, vias — including a via-in-pad merged into its pad's terminal on one
- * layer) has its vertex sets SHORTED across layers. Via barrel resistance
- * (~1 mΩ, see analytic_models) is neglected in v1 — flagged as an upgrade, not hidden.
+ * couple two ways: THT pad MEMBER ids appearing on several layers are SHORTED (the
+ * soldered lead), while each VIA becomes a chain of lumped barrel conductances
+ * between its per-layer terminal nodes (G = 1/R_barrel from analytic_models, barrel
+ * segment length from the stackup). `lumpedVias: false` restores the v1 shorts.
  *
  * Every result carries the achieved CG residual; the caller must not trust a
  * stagnated solve (spec: "the tool knows when it doesn't know").
  */
 
-import { copperThicknessMm, type Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
-import { copperLayers } from "../../pcb_mesh/src/outline/copper.js";
+import { boardThicknessMm, copperThicknessMm, type Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
+import { copperLayers, copperOrderOf } from "../../pcb_mesh/src/outline/copper.js";
 import { buildTerminalMesh, type TerminalMeshOptions } from "../../pcb_mesh/src/mesh/terminals.js";
-import { sheetResistance } from "../../analytic_models/src/index.js";
+import { sheetResistance, viaBarrelResistance } from "../../analytic_models/src/index.js";
 import { assembleStiffness, conjugateGradient, UnionFind, type SparseRows } from "./fem.js";
 
 export interface SolveOptions extends TerminalMeshOptions {
@@ -31,6 +31,23 @@ export interface SolveOptions extends TerminalMeshOptions {
   tolerance?: number;
   /** also return the solved field (per-layer potentials + current density) */
   returnField?: boolean;
+  /**
+   * model each via as a lumped barrel resistance between its layer nodes (default
+   * true). false = short all of a via's layers into one node (the v1 model);
+   * useful to isolate how much the barrels contribute.
+   */
+  lumpedVias?: boolean;
+  /** via plating wall thickness, METERS (default 25e-6) */
+  viaPlatingM?: number;
+}
+
+/** Current through one via barrel segment (per 1 V of A→B drive). */
+export interface ViaCurrent {
+  id: string; // "via@x,y"
+  fromLayer: string;
+  toLayer: string;
+  /** A at 1 V drive; fraction of the total is current·resistance */
+  current: number;
 }
 
 export interface LayerField {
@@ -59,6 +76,8 @@ export interface SolveResult {
   skippedTerminals: string[];
   /** |I_A + I_B| / |I_A| — current conservation check */
   conservationError: number;
+  /** per-via barrel currents (present when lumpedVias is on), largest first */
+  viaCurrents?: ViaCurrent[];
   /** present when options.returnField was set */
   field?: LayerField[];
 }
@@ -76,6 +95,27 @@ interface LayerBlock {
 /** Does `query` name this terminal? Accepts the merged id or any member ref. */
 function matches(t: { id: string; refs: string[] }, query: string): boolean {
   return t.id === query || t.refs.includes(query);
+}
+
+/**
+ * Dielectric span between two copper layers, METERS: sum of the stackup layers
+ * between them; without a stackup, an even share of the 1.6 mm default board.
+ */
+function layerGapM(pcb: Pcb, order: string[], a: string, b: string): number {
+  const s = pcb.stackup;
+  if (s) {
+    const ia = s.findIndex((l) => l.type === "copper" && l.name === a);
+    const ib = s.findIndex((l) => l.type === "copper" && l.name === b);
+    if (ia >= 0 && ib >= 0 && ia !== ib) {
+      const [lo, hi] = ia < ib ? [ia, ib] : [ib, ia];
+      let mm = 0;
+      for (let i = lo + 1; i < hi; i++) mm += s[i]!.thicknessMm ?? 0;
+      if (mm > 0) return mm * 1e-3;
+    }
+  }
+  const gaps = Math.max(1, order.length - 1);
+  const steps = Math.max(1, Math.abs(order.indexOf(a) - order.indexOf(b)));
+  return (((boardThicknessMm(pcb) ?? 1.6) * 1e-3) * steps) / gaps;
 }
 
 export function solveNetResistance(
@@ -114,16 +154,26 @@ export function solveNetResistance(
   // 2) supernodes: terminal vertices merge within a layer; the same MEMBER id merges
   //    across layers. Never match by the merged display id: a via-in-pad terminal is
   //    "PAD+via@x,y" on the pad's layer but plain "via@x,y" everywhere else.
+  //    With lumpedVias (default), via members do NOT short across layers — each
+  //    via's per-layer nodes get chained by barrel conductances in step 4b instead.
+  const lumpedVias = options?.lumpedVias ?? true;
   const uf = new UnionFind(total);
   const rootByTerminalId = new Map<string, number>();
   const rootByMemberId = new Map<string, number>();
   const terminalInfo = new Map<string, { refs: string[] }>();
+  const viaNodes = new Map<string, Array<{ layer: string; node: number }>>();
   for (const b of blocks) {
     for (const t of b.terminals) {
       if (!t.vertexIndices.length) continue;
       const first = b.offset + t.vertexIndices[0]!;
       for (const vi of t.vertexIndices) uf.union(b.offset + vi, first);
       for (const m of t.members) {
+        if (lumpedVias && m.startsWith("via@")) {
+          let list = viaNodes.get(m);
+          if (!list) viaNodes.set(m, (list = []));
+          list.push({ layer: b.layer, node: first });
+          continue;
+        }
         const existing = rootByMemberId.get(m);
         if (existing !== undefined) uf.union(first, existing);
         else rootByMemberId.set(m, first);
@@ -150,6 +200,37 @@ export function solveNetResistance(
   const rows: SparseRows = Array.from({ length: total }, () => new Map());
   for (const b of blocks) {
     assembleStiffness(rows, b.vertices, b.triangles, b.gSheet, (v) => uf.find(b.offset + v));
+  }
+
+  // 4b) lumped via barrels: chain each via's per-layer nodes (in physical stack
+  //     order) with G = 1/R_barrel, segment length = the dielectric span between the
+  //     two copper layers (stackup; uniform share of the board thickness otherwise)
+  const barrels: Array<{ id: string; fromLayer: string; toLayer: string; a: number; b: number; g: number }> = [];
+  if (lumpedVias && viaNodes.size) {
+    const order = copperOrderOf(pcb);
+    const rank = (l: string): number => Math.max(0, order.indexOf(l));
+    const viaById = new Map(pcb.vias.map((v) => [`via@${v.pos.x},${v.pos.y}`, v]));
+    for (const [id, nodes] of viaNodes) {
+      const via = viaById.get(id);
+      if (!via || nodes.length < 2) continue;
+      nodes.sort((x, y) => rank(x.layer) - rank(y.layer));
+      for (let i = 1; i < nodes.length; i++) {
+        const p = nodes[i - 1]!, q = nodes[i]!;
+        const a = uf.find(p.node), b = uf.find(q.node);
+        if (a === b) continue; // already shorted (e.g. through a THT pad)
+        const g = 1 / viaBarrelResistance({
+          finishedHoleDiameter: via.drill * 1e-3,
+          platingThickness: options?.viaPlatingM ?? 25e-6,
+          length: layerGapM(pcb, order, p.layer, q.layer),
+          tempC: options?.tempC,
+        });
+        rows[a]!.set(a, (rows[a]!.get(a) ?? 0) + g);
+        rows[b]!.set(b, (rows[b]!.get(b) ?? 0) + g);
+        rows[a]!.set(b, (rows[a]!.get(b) ?? 0) - g);
+        rows[b]!.set(a, (rows[b]!.get(a) ?? 0) - g);
+        barrels.push({ id, fromLayer: p.layer, toLayer: q.layer, a, b, g });
+      }
+    }
   }
 
   // 5) restrict to the connected component containing A (drop other islands so the
@@ -210,6 +291,13 @@ export function solveNetResistance(
   const iA = currentAt(rootA);
   const iB = currentAt(rootB);
 
+  let viaCurrents: ViaCurrent[] | undefined;
+  if (lumpedVias) {
+    viaCurrents = barrels
+      .map(({ id, fromLayer, toLayer, a, b, g }) => ({ id, fromLayer, toLayer, current: g * (potential(a) - potential(b)) }))
+      .sort((x, y) => Math.abs(y.current) - Math.abs(x.current));
+  }
+
   let field: LayerField[] | undefined;
   if (options?.returnField) {
     field = blocks.map((b) => {
@@ -243,5 +331,6 @@ export function solveNetResistance(
     layers: blocks.map((b) => b.layer),
     skippedTerminals,
     conservationError: Math.abs(iA + iB) / Math.abs(iA),
+    viaCurrents,
   };
 }

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parsePcb, type Pcb, type Pad, type Footprint } from "../../kicad_pcb_viewer/src/parser/pcb.js";
 import { initRuppert } from "../../pcb_mesh/src/mesh/ruppert.js";
-import { sheetResistance, CORNER_SQUARES } from "../../analytic_models/src/index.js";
+import { sheetResistance, viaBarrelResistance, CORNER_SQUARES } from "../../analytic_models/src/index.js";
 import { solveNetResistance } from "../src/solve.js";
 
 beforeAll(async () => {
@@ -159,12 +159,55 @@ describe("real board (poweramp)", () => {
       bbox: { minX: 0, minY: 0, maxX: 10, maxY: 1 },
     };
     const r = solveNetResistance(viaInPad, "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: 0.2 });
-    // ~8 mm of 0.5 mm F.Cu trace ≈ 16 squares, minus the terminal extents — loose band
+    // ~8 mm of 0.5 mm F.Cu trace ≈ 16 squares plus the lumped via barrel (~3 RS
+    // at the default 1.6 mm board) — loose band
     expect(r.resistance).toBeGreaterThan(10 * RS);
-    expect(r.resistance).toBeLessThan(20 * RS);
+    expect(r.resistance).toBeLessThan(24 * RS);
     expect(r.relResidual).toBeLessThan(1e-10);
     expect(r.conservationError).toBeLessThan(1e-8);
     expect(r.layers).toEqual(["F.Cu", "B.Cu"]);
+  });
+});
+
+describe("lumped via barrels", () => {
+  // pad A stacked on a through via on B.Cu; all current crosses exactly one barrel
+  // and continues on the F.Cu trace to pad B — pure series composition
+  const twoLayer = (): Pcb => ({
+    footprints: [
+      fp([{ ...pad("A", 1, 0.5, 0.8, 0.8), layers: ["B.Cu"] }]),
+      fp([{ ...pad("B", 9, 0.5, 0.8, 0.8) }]),
+    ],
+    tracks: [{ start: { x: 1, y: 0.5 }, end: { x: 9, y: 0.5 }, width: 0.5, layer: "F.Cu", net: "N1" }],
+    vias: [{ pos: { x: 1, y: 0.5 }, size: 0.45, drill: 0.2, layers: ["F.Cu", "B.Cu"], net: "N1" }],
+    zones: [], graphics: [], texts: [], nets: ["N1"],
+    layers: ["F.Cu", "B.Cu"], copperStack: ["F.Cu", "B.Cu"],
+    bbox: { minX: 0, minY: 0, maxX: 10, maxY: 1 },
+  });
+
+  it("adds exactly one analytic barrel in series (default 1.6 mm board)", () => {
+    const shorted = solveNetResistance(twoLayer(), "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: 0.2, lumpedVias: false });
+    const lumped = solveNetResistance(twoLayer(), "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: 0.2 });
+    const barrel = viaBarrelResistance({ finishedHoleDiameter: 0.2e-3, platingThickness: 25e-6, length: 1.6e-3 });
+    expect(lumped.resistance - shorted.resistance).toBeCloseTo(barrel, 9);
+    expect(shorted.viaCurrents).toBeUndefined();
+    // the single via carries 100% of the current
+    expect(lumped.viaCurrents!).toHaveLength(1);
+    const vc = lumped.viaCurrents![0]!;
+    expect(vc.id).toBe("via@1,0.5");
+    expect([vc.fromLayer, vc.toLayer].sort()).toEqual(["B.Cu", "F.Cu"]);
+    expect(Math.abs(vc.current) * lumped.resistance).toBeCloseTo(1, 6);
+  });
+
+  it("takes the barrel length from the stackup dielectric span", () => {
+    const stackup: Pcb["stackup"] = [
+      { name: "F.Cu", type: "copper", thicknessMm: 0.035 },
+      { name: "dielectric 1", type: "core", thicknessMm: 0.51 },
+      { name: "B.Cu", type: "copper", thicknessMm: 0.035 },
+    ];
+    const shorted = solveNetResistance({ ...twoLayer(), stackup }, "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: 0.2, lumpedVias: false });
+    const lumped = solveNetResistance({ ...twoLayer(), stackup }, "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: 0.2 });
+    const barrel = viaBarrelResistance({ finishedHoleDiameter: 0.2e-3, platingThickness: 25e-6, length: 0.51e-3 });
+    expect(lumped.resistance - shorted.resistance).toBeCloseTo(barrel, 9);
   });
 });
 

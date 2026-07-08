@@ -590,6 +590,9 @@ solveBtn.addEventListener("click", () => {
         `${estLine}\n` +
         `layers ${r.layers.join("+")} · copper ${[...new Set(r.layers.map((l) => ((copperThicknessMm(pcb, l) ?? 0.035) * 1000).toFixed(0)))].join("/")} µm ${pcb.stackup ? "(stackup)" : "(default)"} · ${r.dofs.toLocaleString()} DOFs · ${ms.toFixed(0)} ms\n` +
         `residual ${r.relResidual.toExponential(1)} · conservation ${r.conservationError.toExponential(1)}` +
+        (r.viaCurrents?.length
+          ? `\nvia share: ${r.viaCurrents.slice(0, 3).map((v) => `${(Math.abs(v.current) * r.resistance * 100).toFixed(0)}% ${v.id} ${v.fromLayer}↔${v.toLayer}`).join(", ")}${r.viaCurrents.length > 3 ? ` (+${r.viaCurrents.length - 3} more)` : ""}`
+          : "") +
         (r.skippedTerminals.length ? `\n⚠ skipped terminals: ${r.skippedTerminals.join(", ")}` : "");
       if (r.field) renderFlow(r.field);
     } catch (e) {

@@ -61,9 +61,16 @@ Current status:
   via-barrel length from board thickness. Real impact: jetson inner layers are
   18 µm (½ oz) — net 859 J18.D21↔R100.2 is 1.92 Ω, not the 1.055 Ω the 1 oz
   assumption gave (path runs mostly on In5/In7).
-- **M3, M5–M8** — not started. Next (P2): lumped via R + per-via currents,
-  Richardson error bars, power display, verification bench (van der Pauw property
-  test, KiPIDA cross-run), app-level integration.
+- **Lumped via barrels (P2.2) — DONE**: `lumpedVias` (default true) replaces the
+  via cross-layer shorts with barrel conductances chained between the via's
+  per-layer nodes (analytic R_barrel; segment length = stackup dielectric span,
+  1.6 mm/gaps fallback). THT pads stay shorted (soldered lead). Series
+  composition is exact (test: ΔR == R_barrel to 1e-9). `SolveResult.viaCurrents`
+  reports per-barrel current (A at 1 V; ×R = share of total), demo shows the top
+  3. Real boards: jetson net 859 1.921→1.930 Ω; openair +3V3 60.46→61.01 mΩ.
+- **M3, M5–M8** — not started. Next (P2): Richardson error bars, power display,
+  verification bench (van der Pauw property test, KiPIDA cross-run),
+  app-level integration.
 
 ## 2. Module: `modules/pcb_mesh` (TypeScript)
 
