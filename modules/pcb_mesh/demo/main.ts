@@ -611,10 +611,43 @@ function updatePowerUI(): void {
 overlayModeEl.addEventListener("change", () => { if (lastSolve) renderFlow(lastSolve.field, lastSolve.resistance); });
 currentAEl.addEventListener("input", updatePowerUI);
 
+// solved results are cached per (board, net, pad pair) — R is reciprocal and the
+// |J| overlay is drive-direction-invariant, so the pair is stored unordered
+const solveCache = new Map<string, { r: ReturnType<typeof solveWithErrorEstimate>; ms: number }>();
+
+function showSolveResult(a: string, b: string, r: ReturnType<typeof solveWithErrorEstimate>, ms: number, cached: boolean): void {
+  const fmt = (ohm: number) => (ohm >= 0.1 ? ohm.toFixed(3) + " Ω" : (ohm * 1000).toFixed(2) + " mΩ");
+  const errPct = (100 * r.relError).toFixed(r.relError < 0.01 ? 2 : 1);
+  const rLine = r.converged
+    ? `R(${a} ↔ ${b}) = ${fmt(r.resistance)} ± ${errPct}%`
+    : `⚠ R(${a} ↔ ${b}) ≈ ${fmt(r.resistance)} ± ${errPct}% — UNCONVERGED, refine the mesh`;
+  const est = estimateResistance(pcb, selectedNet!, a, b);
+  const estLine = est
+    ? `M0 estimate (shortest track path, ${est.pathLengthMm.toFixed(1)} mm, ${est.viaHops} via hops): ${fmt(est.resistance)} · Δ ${(100 * (est.resistance - r.resistance) / r.resistance).toFixed(0)}%`
+    : "M0 estimate: no pure track path (net uses pours/graphics)";
+  rresEl.innerHTML =
+    `<b>${rLine}</b>\n` +
+    `${estLine}\n` +
+    `layers ${r.layers.join("+")} · copper ${[...new Set(r.layers.map((l) => ((copperThicknessMm(pcb, l) ?? 0.035) * 1000).toFixed(0)))].join("/")} µm ${pcb.stackup ? "(stackup)" : "(default)"} · ${r.dofs.toLocaleString()} DOFs · ${cached ? `${ms.toFixed(0)} ms (cached)` : `${ms.toFixed(0)} ms`}\n` +
+    `residual ${r.relResidual.toExponential(1)} · conservation ${r.conservationError.toExponential(1)}` +
+    (r.viaCurrents?.length
+      ? `\nvia share: ${r.viaCurrents.slice(0, 3).map((v) => `${(Math.abs(v.current) * r.resistance * 100).toFixed(0)}% ${v.id} ${v.fromLayer}↔${v.toLayer}`).join(", ")}${r.viaCurrents.length > 3 ? ` (+${r.viaCurrents.length - 3} more)` : ""}`
+      : "") +
+    (r.skippedTerminals.length ? `\n⚠ skipped terminals: ${r.skippedTerminals.join(", ")}` : "");
+  if (r.field) renderFlow(r.field, r.resistance);
+}
+
 solveBtn.addEventListener("click", () => {
   if (!selectedNet) return;
   const [a, b] = [padASel.value, padBSel.value];
   if (a === b) { rresEl.textContent = "pick two different pads"; return; }
+  const key = `${boardGen}|${selectedNet}|${[a, b].sort().join("↔")}`;
+  const hit = solveCache.get(key);
+  if (hit) {
+    console.log(`[solver_rdc] solve cache hit for ${key}`);
+    showSolveResult(a, b, hit.r, hit.ms, true);
+    return;
+  }
   rresEl.textContent = "solving…";
   setTimeout(() => {
     try {
@@ -625,25 +658,9 @@ solveBtn.addEventListener("click", () => {
         returnField: true,
       });
       const ms = performance.now() - t0;
-      const fmt = (ohm: number) => (ohm >= 0.1 ? ohm.toFixed(3) + " Ω" : (ohm * 1000).toFixed(2) + " mΩ");
-      const errPct = (100 * r.relError).toFixed(r.relError < 0.01 ? 2 : 1);
-      const rLine = r.converged
-        ? `R(${a} ↔ ${b}) = ${fmt(r.resistance)} ± ${errPct}%`
-        : `⚠ R(${a} ↔ ${b}) ≈ ${fmt(r.resistance)} ± ${errPct}% — UNCONVERGED, refine the mesh`;
-      const est = estimateResistance(pcb, selectedNet!, a, b);
-      const estLine = est
-        ? `M0 estimate (shortest track path, ${est.pathLengthMm.toFixed(1)} mm, ${est.viaHops} via hops): ${fmt(est.resistance)} · Δ ${(100 * (est.resistance - r.resistance) / r.resistance).toFixed(0)}%`
-        : "M0 estimate: no pure track path (net uses pours/graphics)";
-      rresEl.innerHTML =
-        `<b>${rLine}</b>\n` +
-        `${estLine}\n` +
-        `layers ${r.layers.join("+")} · copper ${[...new Set(r.layers.map((l) => ((copperThicknessMm(pcb, l) ?? 0.035) * 1000).toFixed(0)))].join("/")} µm ${pcb.stackup ? "(stackup)" : "(default)"} · ${r.dofs.toLocaleString()} DOFs · ${ms.toFixed(0)} ms\n` +
-        `residual ${r.relResidual.toExponential(1)} · conservation ${r.conservationError.toExponential(1)}` +
-        (r.viaCurrents?.length
-          ? `\nvia share: ${r.viaCurrents.slice(0, 3).map((v) => `${(Math.abs(v.current) * r.resistance * 100).toFixed(0)}% ${v.id} ${v.fromLayer}↔${v.toLayer}`).join(", ")}${r.viaCurrents.length > 3 ? ` (+${r.viaCurrents.length - 3} more)` : ""}`
-          : "") +
-        (r.skippedTerminals.length ? `\n⚠ skipped terminals: ${r.skippedTerminals.join(", ")}` : "");
-      if (r.field) renderFlow(r.field, r.resistance);
+      solveCache.set(key, { r, ms });
+      while (solveCache.size > 20) solveCache.delete(solveCache.keys().next().value!); // bound memory (fields are big)
+      showSolveResult(a, b, r, ms, false);
     } catch (e) {
       rresEl.textContent = String(e instanceof Error ? e.message : e);
       clearFlow();
