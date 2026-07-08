@@ -126,9 +126,9 @@ Notes for consumers:
 - Back-side footprints are not mirrored (all poweramp footprints are front THT).
 - No soldermask/paste rendering, no copper-pour hatching, no teardrops.
 - `custom` pad shapes are drawn as their bounding primitive.
-- No stackup parsing: layer *names* only — no thickness/ε_r/loss-tangent (needed later
-  for parasitic extraction; the `(setup (stackup …))` section is present in KiCad files
-  and simply ignored today).
+- Stackup IS parsed: `Pcb.stackup` carries `(setup (stackup …))` — per-layer type,
+  thickness, ε_r, tanδ, material — with helpers `copperThicknessMm(pcb, layer)` and
+  `boardThicknessMm(pcb)` (both `undefined` on pre-KiCad-6 files; callers own defaults).
 - Nets are taken from the file's annotations; there is no independent connectivity
   derivation (unlike the schematic viewers, which must compute netlists).
 

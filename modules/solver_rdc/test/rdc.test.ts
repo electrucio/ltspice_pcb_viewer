@@ -168,6 +168,33 @@ describe("real board (poweramp)", () => {
   });
 });
 
+describe("stackup-driven copper thickness", () => {
+  const stripStackup = (tMm: number): Pcb => ({
+    ...strip(),
+    stackup: [
+      { name: "F.Cu", type: "copper", thicknessMm: tMm },
+      { name: "dielectric 1", type: "core", thicknessMm: 1.51, epsilonR: 4.5, lossTangent: 0.02, material: "FR4" },
+      { name: "B.Cu", type: "copper", thicknessMm: tMm },
+    ],
+  });
+  const NO_T = { refinement: "ruppert" as const, maxEdgeLength: 0.2 }; // no copperThicknessM
+
+  it("solver reads per-layer thickness from the stackup (2 oz halves R vs 1 oz)", () => {
+    const r35 = solveNetResistance(stripStackup(0.035), "N1", "A.1", "B.1", NO_T);
+    const r70 = solveNetResistance(stripStackup(0.07), "N1", "A.1", "B.1", NO_T);
+    expect(r35.resistance / r70.resistance).toBeCloseTo(2, 3);
+    expect(Math.abs(r35.resistance - RS * (9.82 - 0.18)) / (RS * (9.82 - 0.18))).toBeLessThan(0.005);
+  });
+
+  it("falls back to 35 µm without a stackup; explicit option overrides everything", () => {
+    const noStackup = solveNetResistance(strip(), "N1", "A.1", "B.1", NO_T);
+    const r35 = solveNetResistance(stripStackup(0.035), "N1", "A.1", "B.1", NO_T);
+    expect(noStackup.resistance).toBeCloseTo(r35.resistance, 12);
+    const forced = solveNetResistance(stripStackup(0.07), "N1", "A.1", "B.1", { ...NO_T, copperThicknessM: 35e-6 });
+    expect(forced.resistance).toBeCloseTo(r35.resistance, 12);
+  });
+});
+
 describe("M0 estimate vs FEM (double-check role)", () => {
   it("straight strip: estimate has no track path (zone-only) → null, FEM stands alone", async () => {
     const { estimateResistance } = await import("../src/estimate.js");

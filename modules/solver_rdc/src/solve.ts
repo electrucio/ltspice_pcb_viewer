@@ -12,14 +12,18 @@
  * stagnated solve (spec: "the tool knows when it doesn't know").
  */
 
-import type { Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
+import { copperThicknessMm, type Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
 import { copperLayers } from "../../pcb_mesh/src/outline/copper.js";
 import { buildTerminalMesh, type TerminalMeshOptions } from "../../pcb_mesh/src/mesh/terminals.js";
 import { sheetResistance } from "../../analytic_models/src/index.js";
 import { assembleStiffness, conjugateGradient, UnionFind, type SparseRows } from "./fem.js";
 
 export interface SolveOptions extends TerminalMeshOptions {
-  /** copper thickness, METERS (default 35e-6 — 1 oz; stackup parsing is future work) */
+  /**
+   * copper thickness override, METERS, applied to ALL layers. Default: each layer's
+   * thickness from the board's `(setup (stackup …))`, falling back to 35e-6 (1 oz)
+   * when the file predates stackups.
+   */
   copperThicknessM?: number;
   /** °C for the resistivity model (default 20) */
   tempC?: number;
@@ -64,6 +68,8 @@ interface LayerBlock {
   vertices: Float64Array;
   triangles: Uint32Array;
   offset: number;
+  /** sheet conductance σ·t of THIS layer (stackups can differ per layer) */
+  gSheet: number;
   terminals: Array<{ id: string; refs: string[]; members: string[]; vertexIndices: number[] }>;
 }
 
@@ -79,8 +85,9 @@ export function solveNetResistance(
   terminalB: string,
   options?: SolveOptions,
 ): SolveResult {
-  const thickness = options?.copperThicknessM ?? 35e-6;
-  const gSheet = 1 / sheetResistance(thickness, options?.tempC);
+  // thickness per layer: explicit option → board stackup → 35 µm (1 oz)
+  const thicknessOf = (layer: string): number =>
+    options?.copperThicknessM ?? (copperThicknessMm(pcb, layer) ?? 0.035) * 1e-3;
 
   // 1) terminal meshes per layer
   const blocks: LayerBlock[] = [];
@@ -96,6 +103,7 @@ export function solveNetResistance(
       vertices: tm.mesh.vertices,
       triangles: tm.mesh.triangles,
       offset,
+      gSheet: 1 / sheetResistance(thicknessOf(layer), options?.tempC),
       terminals: tm.terminals,
     });
     offset += tm.mesh.vertices.length / 2;
@@ -141,7 +149,7 @@ export function solveNetResistance(
   // 4) assemble the merged stiffness
   const rows: SparseRows = Array.from({ length: total }, () => new Map());
   for (const b of blocks) {
-    assembleStiffness(rows, b.vertices, b.triangles, gSheet, (v) => uf.find(b.offset + v));
+    assembleStiffness(rows, b.vertices, b.triangles, b.gSheet, (v) => uf.find(b.offset + v));
   }
 
   // 5) restrict to the connected component containing A (drop other islands so the
@@ -219,7 +227,7 @@ export function solveNetResistance(
         const v1 = pot[i]!, v2 = pot[j]!, v3 = pot[k]!;
         const gx = (v1 * (y2 - y3) + v2 * (y3 - y1) + v3 * (y1 - y2)) / area2;
         const gy = (v1 * (x3 - x2) + v2 * (x1 - x3) + v3 * (x2 - x1)) / area2;
-        currentDensity[t / 3] = gSheet * Math.hypot(gx, gy);
+        currentDensity[t / 3] = b.gSheet * Math.hypot(gx, gy);
       }
       return { layer: b.layer, vertices: b.vertices, triangles: b.triangles, potential: pot, currentDensity };
     });

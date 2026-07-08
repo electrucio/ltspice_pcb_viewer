@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { parsePcb } from "../src/parser/pcb.js";
+import { boardThicknessMm, copperThicknessMm, parsePcb } from "../src/parser/pcb.js";
 
 const text = readFileSync(fileURLToPath(new URL("./fixtures/poweramp.kicad_pcb", import.meta.url)), "utf8");
 const pcb = parsePcb(text);
@@ -66,6 +66,35 @@ describe("board text (gr_text)", () => {
 
   it("declares the copper stack in physical order", () => {
     expect(pcb.copperStack).toEqual(["F.Cu", "B.Cu"]);
+  });
+});
+
+describe("stackup", () => {
+  it("parses the poweramp stackup (copper thickness, dielectric, ε_r, tanδ)", () => {
+    const s = pcb.stackup!;
+    expect(s).toBeDefined();
+    const fcu = s.find((l) => l.name === "F.Cu")!;
+    expect(fcu.type).toBe("copper");
+    expect(fcu.thicknessMm).toBeCloseTo(0.035, 9);
+    const core = s.find((l) => l.type === "core")!;
+    expect(core.thicknessMm).toBeCloseTo(1.51, 9);
+    expect(core.epsilonR).toBeCloseTo(4.5, 9);
+    expect(core.lossTangent).toBeCloseTo(0.02, 9);
+    expect(core.material).toBe("FR4");
+  });
+
+  it("helpers: per-layer copper thickness and physical board thickness", () => {
+    expect(copperThicknessMm(pcb, "F.Cu")).toBeCloseTo(0.035, 9);
+    expect(copperThicknessMm(pcb, "B.Cu")).toBeCloseTo(0.035, 9);
+    expect(copperThicknessMm(pcb, "In1.Cu")).toBeUndefined();
+    expect(boardThicknessMm(pcb)).toBeCloseTo(0.035 + 1.51 + 0.035, 9);
+  });
+
+  it("returns undefined for boards without a stackup section", () => {
+    const bare = parsePcb(`(kicad_pcb (version 20241229) (generator "pcbnew"))`);
+    expect(bare.stackup).toBeUndefined();
+    expect(copperThicknessMm(bare, "F.Cu")).toBeUndefined();
+    expect(boardThicknessMm(bare)).toBeUndefined();
   });
 });
 

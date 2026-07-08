@@ -99,6 +99,16 @@ export interface BBox {
   maxY: number;
 }
 
+/** One physical layer from `(setup (stackup …))` — copper, dielectric, mask, silk. */
+export interface StackupLayer {
+  name: string; // "F.Cu", "dielectric 1", …
+  type: string; // "copper" | "core" | "prepreg" | "Top Solder Mask" | …
+  thicknessMm?: number;
+  epsilonR?: number;
+  lossTangent?: number;
+  material?: string;
+}
+
 export interface Pcb {
   footprints: Footprint[];
   tracks: Track[];
@@ -111,7 +121,24 @@ export interface Pcb {
   /** copper layer names in physical stack order (from the file's `(layers …)`
    *  declaration, F.Cu → … → B.Cu) — the authority for via SPAN questions */
   copperStack: string[];
+  /** physical stackup in top-to-bottom order; undefined when the file has none (pre-KiCad-6) */
+  stackup?: StackupLayer[];
   bbox: BBox;
+}
+
+/** Copper thickness of a layer from the stackup, mm — undefined when unknown (caller owns defaults). */
+export function copperThicknessMm(pcb: Pcb, layer: string): number | undefined {
+  return pcb.stackup?.find((l) => l.type === "copper" && l.name === layer)?.thicknessMm;
+}
+
+/** Physical board thickness (copper + dielectrics, no mask/silk), mm — undefined when unknown. */
+export function boardThicknessMm(pcb: Pcb): number | undefined {
+  if (!pcb.stackup) return undefined;
+  const phys = pcb.stackup.filter((l) => l.type === "copper" || l.type === "core" || l.type === "prepreg");
+  if (!phys.length) return undefined;
+  let sum = 0;
+  for (const l of phys) sum += l.thicknessMm ?? 0;
+  return sum > 0 ? sum : undefined;
 }
 
 // ---- small readers -------------------------------------------------------
@@ -289,6 +316,28 @@ export function parsePcb(text: string, sign: number = ROT_SIGN): Pcb {
     }
   }
 
+  // physical stackup: (setup (stackup (layer "F.Cu" (type "copper") (thickness 0.035)) …))
+  let stackup: StackupLayer[] | undefined;
+  const setup = child(root, "setup");
+  const stackupNode = setup ? child(setup, "stackup") : undefined;
+  if (stackupNode) {
+    stackup = [];
+    for (const l of children(stackupNode, "layer")) {
+      const num = (n: string): number | undefined => {
+        const v = Number(child(l, n)?.values[0]);
+        return Number.isFinite(v) ? v : undefined;
+      };
+      stackup.push({
+        name: String(l.values[0] ?? ""),
+        type: childStr(l, "type") ?? "",
+        thicknessMm: num("thickness"),
+        epsilonR: num("epsilon_r"),
+        lossTangent: num("loss_tangent"),
+        material: childStr(l, "material"),
+      });
+    }
+  }
+
   const footprints: Footprint[] = [];
   const texts: BoardText[] = [];
   const tracks: Track[] = [];
@@ -394,5 +443,5 @@ export function parsePcb(text: string, sign: number = ROT_SIGN): Pcb {
     for (const f of footprints) for (const p of f.pads) grow(bbox, p.pos);
   }
 
-  return { footprints, tracks, vias, zones, graphics, texts, copperStack, nets: [...netSet].sort(), layers: [...new Set([...tracks.map((t) => t.layer), ...graphics.map((g) => g.layer)])], bbox };
+  return { footprints, tracks, vias, zones, graphics, texts, copperStack, stackup, nets: [...netSet].sort(), layers: [...new Set([...tracks.map((t) => t.layer), ...graphics.map((g) => g.layer)])], bbox };
 }

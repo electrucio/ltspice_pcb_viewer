@@ -56,8 +56,14 @@ Current status:
   inset is a true uniform edge offset (a radial shrink under-inset thin pads by 5×
   and spawned µm channels that exploded the mesher — fixed, strip now matches
   ρL/(Wt) to 2e-5).
-- **M3, M5–M8** — not started. Next: Richardson error bars (refinement-level
-  harness), lumped via R, stackup parsing (M5 prerequisite), app-level integration.
+- **Stackup parsing (P2.1) — DONE**: `Pcb.stackup` from `(setup (stackup …))`;
+  solver + M0 estimate resolve thickness per layer (option → stackup → 35 µm) and
+  via-barrel length from board thickness. Real impact: jetson inner layers are
+  18 µm (½ oz) — net 859 J18.D21↔R100.2 is 1.92 Ω, not the 1.055 Ω the 1 oz
+  assumption gave (path runs mostly on In5/In7).
+- **M3, M5–M8** — not started. Next (P2): lumped via R + per-via currents,
+  Richardson error bars, power display, verification bench (van der Pauw property
+  test, KiPIDA cross-run), app-level integration.
 
 ## 2. Module: `modules/pcb_mesh` (TypeScript)
 
@@ -195,9 +201,9 @@ demo falls back to cdt2d when missing). Toolchain via `brew install rustup wasm-
    not nestedness).
 3. Cross-layer connectivity (stitch via vias) → true disconnected-copper detection.
 4. Arc tracks are straightened by the parser (fine for highlight, wrong for length-
-   sensitive analysis); trapezoid/custom pads boxed; no stackup parsing yet (the
-   `(setup (stackup …))` section — thickness/ε_r — is present in the files and
-   ignored; M5 needs it).
+   sensitive analysis); trapezoid/custom pads boxed. Stackup is parsed
+   (`Pcb.stackup`, `copperThicknessMm`, `boardThicknessMm`) and drives solver
+   sheet conductance per layer; ε_r/tanδ await M5.
 5. M4 itself: linear FEM on the meshes (sheet conductivity σ·t, pad terminals as BCs,
    via barrels as lumped R) — the mesh side is ready for it.
 6. Per-(layer,net) mesh caching for interactivity on 10× bigger boards (trivial,

@@ -10,15 +10,15 @@
  * be badly pessimistic; when no track path exists it returns null instead of a guess.
  */
 
-import type { Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
+import { boardThicknessMm, copperThicknessMm, type Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
 import { padOnLayer, copperLayers } from "../../pcb_mesh/src/outline/copper.js";
 import { sheetResistance, viaBarrelResistance } from "../../analytic_models/src/index.js";
 
 export interface EstimateOptions {
-  /** copper thickness, METERS (default 35e-6) */
+  /** copper thickness override, METERS, all layers (default: stackup per layer → 35e-6) */
   copperThicknessM?: number;
   tempC?: number;
-  /** board thickness for via barrels, METERS (default 1.6e-3) */
+  /** board thickness for via barrels, METERS (default: stackup Σ → 1.6e-3) */
   boardThicknessM?: number;
   /** via plating wall, METERS (default 25e-6) */
   viaPlatingM?: number;
@@ -36,7 +36,9 @@ export interface EstimateResult {
 const q = (v: number) => Math.round(v * 1000);
 
 export function estimateResistance(pcb: Pcb, net: string, padA: string, padB: string, options?: EstimateOptions): EstimateResult | null {
-  const rs = sheetResistance(options?.copperThicknessM ?? 35e-6, options?.tempC);
+  const rsOf = (layer: string): number =>
+    sheetResistance(options?.copperThicknessM ?? (copperThicknessMm(pcb, layer) ?? 0.035) * 1e-3, options?.tempC);
+  const barrelLength = options?.boardThicknessM ?? ((boardThicknessMm(pcb) ?? 1.6) * 1e-3);
   const layers = copperLayers(pcb);
 
   const ids = new Map<string, number>();
@@ -58,7 +60,7 @@ export function estimateResistance(pcb: Pcb, net: string, padA: string, padB: st
   for (const t of pcb.tracks) {
     if (t.net !== net || !(t.width > 0)) continue;
     const len = Math.hypot(t.end.x - t.start.x, t.end.y - t.start.y);
-    link(node(`${t.layer}|${q(t.start.x)},${q(t.start.y)}`), node(`${t.layer}|${q(t.end.x)},${q(t.end.y)}`), rs * (len / t.width), false, len);
+    link(node(`${t.layer}|${q(t.start.x)},${q(t.start.y)}`), node(`${t.layer}|${q(t.end.x)},${q(t.end.y)}`), rsOf(t.layer) * (len / t.width), false, len);
   }
   for (const v of pcb.vias) {
     if (v.net !== net) continue;
@@ -66,7 +68,7 @@ export function estimateResistance(pcb: Pcb, net: string, padA: string, padB: st
     const rVia = viaBarrelResistance({
       finishedHoleDiameter: v.drill * 1e-3,
       platingThickness: options?.viaPlatingM ?? 25e-6,
-      length: options?.boardThicknessM ?? 1.6e-3,
+      length: barrelLength,
       tempC: options?.tempC,
     });
     for (let i = 1; i < span.length; i++) {

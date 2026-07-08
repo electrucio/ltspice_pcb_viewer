@@ -6,7 +6,7 @@
  */
 import defaultBoard from "../../kicad_pcb_viewer/demo/poweramp.kicad_pcb?raw";
 import { wheelZoomFactor } from "../../kicad_pcb_viewer/src/interaction/controller.js";
-import { parsePcb, type Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
+import { copperThicknessMm, parsePcb, type Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
 import { extractCopper } from "../src/outline/copper.js";
 import { meshRegion } from "../src/mesh/triangulate.js";
 import { emptySanitationReport, resolveOptions } from "../src/types.js";
@@ -588,7 +588,7 @@ solveBtn.addEventListener("click", () => {
       rresEl.innerHTML =
         `<b>R(${a} ↔ ${b}) = ${fmt(r.resistance)}</b>\n` +
         `${estLine}\n` +
-        `layers ${r.layers.join("+")} · ${r.dofs.toLocaleString()} DOFs · ${ms.toFixed(0)} ms\n` +
+        `layers ${r.layers.join("+")} · copper ${[...new Set(r.layers.map((l) => ((copperThicknessMm(pcb, l) ?? 0.035) * 1000).toFixed(0)))].join("/")} µm ${pcb.stackup ? "(stackup)" : "(default)"} · ${r.dofs.toLocaleString()} DOFs · ${ms.toFixed(0)} ms\n` +
         `residual ${r.relResidual.toExponential(1)} · conservation ${r.conservationError.toExponential(1)}` +
         (r.skippedTerminals.length ? `\n⚠ skipped terminals: ${r.skippedTerminals.join(", ")}` : "");
       if (r.field) renderFlow(r.field);
