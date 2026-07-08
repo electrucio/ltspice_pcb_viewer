@@ -238,6 +238,45 @@ describe("stackup-driven copper thickness", () => {
   });
 });
 
+describe("Richardson error bars (solveWithErrorEstimate)", () => {
+  const bend = () =>
+    zonePcb(
+      [[0, 0], [10, 0], [10, 10], [9, 10], [9, 1], [0, 1]],
+      [pad("A", 0.1, 0.5, 0.2, 1), pad("B", 9.5, 9.9, 1, 0.2)],
+    );
+
+  it("the bar brackets the analytic truth (strip and L-bend)", async () => {
+    const { solveWithErrorEstimate } = await import("../src/richardson.js");
+    const strip1 = solveWithErrorEstimate(strip(), "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: 0.4 });
+    const expected = RS * (9.82 - 0.18);
+    expect(Math.abs(strip1.resistance - expected)).toBeLessThanOrEqual(strip1.errorEstimate + 1e-3 * expected);
+    expect(strip1.converged).toBe(true);
+
+    const bendR = solveWithErrorEstimate(bend(), "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: 0.4 });
+    const bendExpected = RS * ((9 - 0.18) + (9.82 - 1) + CORNER_SQUARES);
+    // corner singularity: truth within the bar plus the 0.56-sq model's own ±0.15 sq slack
+    expect(Math.abs(bendR.resistance - bendExpected)).toBeLessThanOrEqual(bendR.errorEstimate + 0.15 * RS);
+    expect(bendR.converged).toBe(true);
+    expect(bendR.coarseResistance).not.toBe(bendR.resistance);
+  });
+
+  it("the bar shrinks as the base mesh refines", async () => {
+    const { solveWithErrorEstimate } = await import("../src/richardson.js");
+    const coarse = solveWithErrorEstimate(bend(), "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: 1.2 });
+    const fine = solveWithErrorEstimate(bend(), "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: 0.3 });
+    expect(fine.errorEstimate).toBeLessThan(coarse.errorEstimate);
+    expect(fine.relError).toBeLessThan(0.05);
+  });
+
+  it("refuses infinite h and carries the fine solve's extras", async () => {
+    const { solveWithErrorEstimate } = await import("../src/richardson.js");
+    expect(() => solveWithErrorEstimate(strip(), "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: Infinity })).toThrow(/maxEdgeLength/);
+    const r = solveWithErrorEstimate(strip(), "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: 0.4, returnField: true });
+    expect(r.field).toBeDefined();
+    expect(r.relResidual).toBeLessThan(1e-10);
+  });
+});
+
 describe("M0 estimate vs FEM (double-check role)", () => {
   it("straight strip: estimate has no track path (zone-only) → null, FEM stands alone", async () => {
     const { estimateResistance } = await import("../src/estimate.js");

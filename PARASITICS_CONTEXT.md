@@ -68,9 +68,14 @@ Current status:
   composition is exact (test: ΔR == R_barrel to 1e-9). `SolveResult.viaCurrents`
   reports per-barrel current (A at 1 V; ×R = share of total), demo shows the top
   3. Real boards: jetson net 859 1.921→1.930 Ω; openair +3V3 60.46→61.01 mΩ.
-- **M3, M5–M8** — not started. Next (P2): Richardson error bars, power display,
-  verification bench (van der Pauw property test, KiPIDA cross-run),
-  app-level integration.
+- **Richardson error bars (P2.3) — DONE**: `solveWithErrorEstimate` solves at h
+  and h/2, reports the fine R with the CONSERVATIVE bound |R(h)−R(h/2)| (not the
+  /3 asymptotic — Ruppert meshes aren't exactly h-parameterized), `converged`
+  = relError ≤ 5%. Tests: bar brackets analytic truth on strip AND L-bend, bar
+  shrinks with h. Demo shows "R = 3.807 mΩ ± 0.32%" (poweramp, 242 ms both
+  passes at h=0.8) and flags UNCONVERGED.
+- **M3, M5–M8** — not started. Next (P2): power display, verification bench
+  (van der Pauw property test, KiPIDA cross-run), app-level integration.
 
 ## 2. Module: `modules/pcb_mesh` (TypeScript)
 

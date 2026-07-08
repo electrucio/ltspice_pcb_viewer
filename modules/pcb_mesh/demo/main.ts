@@ -12,7 +12,8 @@ import { meshRegion } from "../src/mesh/triangulate.js";
 import { emptySanitationReport, resolveOptions } from "../src/types.js";
 import { analyzeRegion } from "../src/verify.js";
 import { initRuppert, ruppertReady } from "../src/mesh/ruppert.js";
-import { solveNetResistance } from "../../solver_rdc/src/solve.js";
+import type { solveNetResistance } from "../../solver_rdc/src/solve.js";
+import { solveWithErrorEstimate } from "../../solver_rdc/src/richardson.js";
 import { estimateResistance } from "../../solver_rdc/src/estimate.js";
 import type { BoardMesh, RegionMesh, SanitationReport } from "../src/types.js";
 
@@ -574,19 +575,23 @@ solveBtn.addEventListener("click", () => {
   setTimeout(() => {
     try {
       const t0 = performance.now();
-      const r = solveNetResistance(pcb, selectedNet!, a, b, {
-        maxEdgeLength: 0.5,
+      const r = solveWithErrorEstimate(pcb, selectedNet!, a, b, {
+        maxEdgeLength: 0.8, // fine pass solves at 0.4
         refinement: ruppertReady() ? "ruppert" : "delaunay",
         returnField: true,
       });
       const ms = performance.now() - t0;
       const fmt = (ohm: number) => (ohm >= 0.1 ? ohm.toFixed(3) + " Ω" : (ohm * 1000).toFixed(2) + " mΩ");
+      const errPct = (100 * r.relError).toFixed(r.relError < 0.01 ? 2 : 1);
+      const rLine = r.converged
+        ? `R(${a} ↔ ${b}) = ${fmt(r.resistance)} ± ${errPct}%`
+        : `⚠ R(${a} ↔ ${b}) ≈ ${fmt(r.resistance)} ± ${errPct}% — UNCONVERGED, refine the mesh`;
       const est = estimateResistance(pcb, selectedNet!, a, b);
       const estLine = est
         ? `M0 estimate (shortest track path, ${est.pathLengthMm.toFixed(1)} mm, ${est.viaHops} via hops): ${fmt(est.resistance)} · Δ ${(100 * (est.resistance - r.resistance) / r.resistance).toFixed(0)}%`
         : "M0 estimate: no pure track path (net uses pours/graphics)";
       rresEl.innerHTML =
-        `<b>R(${a} ↔ ${b}) = ${fmt(r.resistance)}</b>\n` +
+        `<b>${rLine}</b>\n` +
         `${estLine}\n` +
         `layers ${r.layers.join("+")} · copper ${[...new Set(r.layers.map((l) => ((copperThicknessMm(pcb, l) ?? 0.035) * 1000).toFixed(0)))].join("/")} µm ${pcb.stackup ? "(stackup)" : "(default)"} · ${r.dofs.toLocaleString()} DOFs · ${ms.toFixed(0)} ms\n` +
         `residual ${r.relResidual.toExponential(1)} · conservation ${r.conservationError.toExponential(1)}` +
