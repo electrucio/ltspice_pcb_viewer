@@ -234,6 +234,11 @@ demo falls back to cdt2d when missing). Toolchain via `brew install rustup wasm-
   this the same net splits in two — openair-max +3V3 had tracks under "4" and its
   1549 mm² In1.Cu plane under "+3V3" → "not connected" C13.2↔R8.2 (now 60.5 mΩ) and
   double-extracted, "empty-looking" B.Cu;
+  **pour cutouts nest copper islands**: a pad/via whose copper sits inside a zone
+  VOID is a separate polygon nested inside the big island's hole, so several outers
+  can contain a terminal point — placement must pick the INNERMOST containing island
+  (first-match landed "inside a void" and skipped multichannel_mixer's C11.1 & three
+  sibling GND pads + their vias; now J9.R↔C11.1 = 2.23 mΩ);
   **via-in-pad is common on dense boards** (jetson: through via stacked at the center
   of an SMD pad, J18.D21) — the via merges into the pad's terminal on that layer, so
   cross-layer supernode stitching must union by terminal **member ids**

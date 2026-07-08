@@ -84,6 +84,31 @@ describe("terminal meshes", () => {
     expect(padTerms[0]!.refs.sort()).toEqual(["A.1", "B.1"]);
   });
 
+  it("places terminals on copper nested inside a zone void (multichannel_mixer GND)", () => {
+    // four bars union into a square annulus; the pad's copper is a separate island
+    // NESTED inside the annulus hole. Placement must pick the innermost containing
+    // island — matching the first (the annulus) puts the pad "inside a void" and
+    // skipped the terminal.
+    const bar = (pts: Array<[number, number]>) => ({ layer: "F.Cu", net: "N1", pts: pts.map(([x, y]) => ({ x, y })) });
+    const pcb = makePcb({
+      zones: [
+        bar([[0, 0], [10, 0], [10, 1], [0, 1]]),
+        bar([[0, 9], [10, 9], [10, 10], [0, 10]]),
+        bar([[0, 0], [1, 0], [1, 10], [0, 10]]),
+        bar([[9, 0], [10, 0], [10, 10], [9, 10]]),
+      ],
+      footprints: [
+        makeFootprint([
+          makePad({ ref: "P1", number: "1", shape: "rect", size: { w: 2, h: 2 }, pos: { x: 5, y: 5 }, net: "N1" }),
+          makePad({ ref: "P2", number: "1", shape: "rect", size: { w: 1, h: 1 }, pos: { x: 0.5, y: 0.5 }, net: "N1" }),
+        ]),
+      ],
+    });
+    const tm = buildTerminalMesh(pcb, "F.Cu", "N1", { maxEdgeLength: 0.5, refinement: "ruppert" })!;
+    expect(tm.skipped).toEqual([]);
+    expect(tm.terminals.map((t) => t.id).sort()).toEqual(["P1.1", "P2.1"]);
+  });
+
   it("via-in-pad: merges the via into the pad terminal but keeps both member ids", () => {
     // SMD pad with a through via stacked at its center (jetson-style). The via's
     // midline ring sits strictly INSIDE the pad's inset ring (no edge crossing) —

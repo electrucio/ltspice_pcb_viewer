@@ -18,7 +18,7 @@
 import pc from "polygon-clipping";
 import type { Pcb } from "../../../kicad_pcb_viewer/src/parser/pcb.js";
 import type { MeshOptions, MultiPolygon, Polygon, RegionMesh, Ring, Vec2 } from "../types.js";
-import { resolveOptions } from "../types.js";
+import { resolveOptions, ringArea } from "../types.js";
 import { copperOrderOf, extractCopperRegions, padOnLayer, viaSpansLayer } from "../outline/copper.js";
 import { circleOutline, padArcRadius, padOutline, segmentsForRadius } from "../outline/primitives.js";
 import { meshRegion } from "./triangulate.js";
@@ -229,7 +229,17 @@ export function buildTerminalMesh(pcb: Pcb, layer: string, net: string, options?
     let ok = true;
     for (const ring of spec.rings) {
       const [sx, sy] = ring[0]!;
-      const poly = polygons.find((p) => pointInRing(sx, sy, p[0]!));
+      // innermost containing island, not just the first: copper nested inside a zone
+      // void (pad + via + stub isolated in a pour cutout — multichannel_mixer GND) is
+      // a SEPARATE polygon whose outer lies inside the big island's hole. The big
+      // island's outer also contains the point, so "first match" lands in its void.
+      let poly: Polygon | undefined;
+      let polyArea = Infinity;
+      for (const cand of polygons) {
+        if (!pointInRing(sx, sy, cand[0]!)) continue;
+        const a = Math.abs(ringArea(cand[0]!));
+        if (a < polyArea) { poly = cand; polyArea = a; }
+      }
       if (!poly) { ok = false; break; } // terminal outside this net's copper (shouldn't happen)
       // must not cross the island outline or surviving holes; swallow contained holes
       if (ringsCross(ring, poly[0]!)) { ok = false; break; }
