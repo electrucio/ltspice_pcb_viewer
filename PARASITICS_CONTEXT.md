@@ -86,6 +86,18 @@ Current status:
   cross-run is manual** (it's a KiCad-9 IPC plugin; needs the GUI): install per
   its README, run IR-drop on poweramp /POW1 R2.1→R9.1 (expect ~3.8 mΩ ± few %,
   its grid solver differs by design) — record results here when run.
+  **KiCad-Parasitics (Steffen-W) cross-run — DONE, headless**: driven via
+  KiCad 10's bundled pcbnew python (driver in scratchpad; their clone at
+  ~/git/KiCad-Parasitics locally patched with `from __future__ import
+  annotations` — it targets py3.10+, KiCad ships 3.9; numpy +
+  typing_extensions pip'd --user into KiCad's python). poweramp /POW1
+  R2.1↔R9.1: their shortest-path R = 4.608 mΩ over 11.52 mm vs our M0
+  4.729 mΩ over the IDENTICAL 11.52 mm path — Δ2.6% is exactly their
+  ρ=1.68e-8 vs our IACS 1.724e-8; geometric agreement exact. (Their ngspice
+  full-network DC sim aborts in the bundled libngspice — "timestep too
+  small" — so the network-level number wasn't obtainable headless.) Our FEM
+  3.807 mΩ sits below both shortest-path numbers, as it must (parallel
+  copper).
 - **M3, M5–M8** — not started. Next: M5 RLGC (papers in ~/git/papers),
   app-level integration, plane-net fast preview.
 

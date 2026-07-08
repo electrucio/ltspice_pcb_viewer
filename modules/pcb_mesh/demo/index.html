@@ -23,6 +23,9 @@
       #solve select { max-width: 90px; }
       #rres { margin-top: 6px; white-space: pre-line; font-size: 12px; }
       #power { margin-top: 4px; white-space: pre-line; font-size: 12px; }
+      #stackupbox { margin: 10px 0; padding: 8px; border: 1px solid #8884; border-radius: 6px; font-size: 12px; }
+      #stackupbox summary { cursor: pointer; }
+      #stackupinfo { margin-top: 6px; white-space: pre-line; font-family: ui-monospace, monospace; font-size: 11px; }
       #flowlegend { margin-top: 4px; font-size: 11px; opacity: 0.85; }
       #info .ok { color: #2e9e44; } #info .bad { color: #d33; font-weight: bold; }
       #nets { margin: 0; padding: 0; list-style: none; }
@@ -61,6 +64,10 @@
       </label>
       <label><input type="checkbox" id="islandsOnly" /> highlight multi-island copper (per-layer islands &gt; 1)</label>
       <div id="stats">…</div>
+      <details id="stackupbox">
+        <summary>stackup (used by the solver)</summary>
+        <div id="stackupinfo"></div>
+      </details>
       <div id="solve" hidden>
         <b>DC resistance</b>
         <label>from <select id="padA"></select></label>

@@ -6,7 +6,7 @@
  */
 import defaultBoard from "../../kicad_pcb_viewer/demo/poweramp.kicad_pcb?raw";
 import { wheelZoomFactor } from "../../kicad_pcb_viewer/src/interaction/controller.js";
-import { copperThicknessMm, parsePcb, type Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
+import { boardThicknessMm, copperThicknessMm, parsePcb, type Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
 import { extractCopper } from "../src/outline/copper.js";
 import { meshRegion } from "../src/mesh/triangulate.js";
 import { emptySanitationReport, resolveOptions } from "../src/types.js";
@@ -651,6 +651,29 @@ solveBtn.addEventListener("click", () => {
   }, 10);
 });
 
+/** What the solver will actually use: per-layer copper thickness, dielectrics, totals. */
+function renderStackup(): void {
+  const box = document.getElementById("stackupinfo")!;
+  const s = pcb.stackup;
+  if (!s) {
+    box.textContent = "no (setup (stackup …)) in this file — the solver assumes 35 µm (1 oz) copper on every layer and a 1.6 mm board for via-barrel lengths";
+    return;
+  }
+  const phys = s.filter((l) => l.type === "copper" || l.type === "core" || l.type === "prepreg");
+  const lines = phys.map((l) => {
+    const name = l.name.padEnd(12);
+    if (l.type === "copper") {
+      return l.thicknessMm !== undefined
+        ? `${name}${(l.thicknessMm * 1000).toFixed(0).padStart(4)} µm copper`
+        : `${name}  ?? copper — 35 µm assumed`;
+    }
+    return `${name}${l.thicknessMm !== undefined ? l.thicknessMm.toFixed(3).padStart(6) + " mm" : "    ??"} ${l.type}${l.material ? ` ${l.material}` : ""}${l.epsilonR !== undefined ? ` · εr ${l.epsilonR}` : ""}${l.lossTangent !== undefined ? ` · tanδ ${l.lossTangent}` : ""}`;
+  });
+  const total = boardThicknessMm(pcb);
+  if (total !== undefined) lines.push(`${"total".padEnd(12)}${total.toFixed(3).padStart(6)} mm (via-barrel lengths from the dielectric spans)`);
+  box.textContent = lines.join("\n");
+}
+
 function loadBoard(text: string, name = "board"): void {
   try {
     const t0 = performance.now();
@@ -665,6 +688,7 @@ function loadBoard(text: string, name = "board"): void {
       .filter((l) => l.endsWith(".Cu") && !l.startsWith("*") && l !== "F&B.Cu")
       .sort((a, b) => (a === "F.Cu" ? -1 : b === "F.Cu" ? 1 : a === "B.Cu" ? 1 : b === "B.Cu" ? -1 : a.localeCompare(b)));
     layerSel.replaceChildren(...layers.map((l) => new Option(l, l)), new Option("All layers", "*"));
+    renderStackup();
     rebuildMesh();
   } catch (e) {
     // never fail silently — the board didn't load, say so where the user looks
