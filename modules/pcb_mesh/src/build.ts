@@ -14,6 +14,7 @@ export function buildBoardMesh(pcb: Pcb, options?: MeshOptions): BoardMesh {
   const { regions: copper, report } = extractCopper(pcb, options);
   const regions = copper.map((r) => meshRegion(r, o.maxEdgeLength, o.refinement));
   report.degenerateTriangles = regions.reduce((s, r) => s + r.degenerateTriangles, 0);
+  report.refinementFallbacks = regions.reduce((s, r) => s + (r.refinementFellBack ? 1 : 0), 0);
   return { layers: o.layers ?? copperLayers(pcb), regions, report };
 }
 

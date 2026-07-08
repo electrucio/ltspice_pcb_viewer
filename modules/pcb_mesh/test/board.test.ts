@@ -97,4 +97,25 @@ describe("preamp board (second golden fixture — polygon-clipping robustness)",
       expect(Math.abs(r.meshArea - r.outlineArea) / r.outlineArea, `${r.layer}/${r.net}`).toBeLessThan(1e-6);
     }
   });
+
+  it("emits no degenerate output rings (sub-nm edges / ~zero-area slivers)", () => {
+    // Boolean intersection points are NOT on the 1 nm snap grid; One-Air-Max's PGND
+    // pour produced a 3-point hole with a 1.3e-8 mm edge that made spade's Ruppert
+    // refinement panic (WASM "unreachable"). Extraction must clean such rings out.
+    for (const fixture of [preamp, pcb]) {
+      for (const r of extractCopperRegions(fixture, { arcSegments: 24 })) {
+        for (const poly of r.polygons) {
+          for (const ring of poly) {
+            let area = 0;
+            for (let i = 0; i < ring.length; i++) {
+              const [ax, ay] = ring[i]!, [bx, by] = ring[(i + 1) % ring.length]!;
+              expect(Math.hypot(bx - ax, by - ay), `${r.layer}/${r.net} edge`).toBeGreaterThanOrEqual(1e-6);
+              area += ax * by - bx * ay;
+            }
+            expect(Math.abs(area / 2), `${r.layer}/${r.net} ring area`).toBeGreaterThanOrEqual(1e-8);
+          }
+        }
+      }
+    }
+  });
 });

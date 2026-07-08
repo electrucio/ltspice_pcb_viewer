@@ -11,6 +11,13 @@
       aside h1 { font-size: 15px; margin: 0 0 8px; }
       aside label { display: block; margin: 6px 0; }
       #stats { margin: 10px 0; padding: 8px; border: 1px solid #8884; border-radius: 6px; white-space: pre-line; }
+      #stats progress { display: block; width: 100%; margin-top: 6px; }
+      #errbox { position: fixed; inset: 0; background: #0007; display: flex; align-items: center; justify-content: center; z-index: 10; }
+      #errbox[hidden] { display: none; }
+      #errbox .errcard { background: canvas; color: canvastext; border: 2px solid #d33; border-radius: 8px; padding: 16px; max-width: 560px; max-height: 70vh; overflow: auto; box-shadow: 0 8px 32px #0008; }
+      #errbox b { color: #d33; }
+      #errbox pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; margin: 10px 0; }
+      #errbox button { padding: 4px 14px; }
       #info { margin: 10px 0; padding: 8px; border: 1px solid #4a90d9; border-radius: 6px; font-size: 11px; line-height: 1.5; overflow-x: auto; }
       #solve { margin: 10px 0; padding: 8px; border: 1px solid #2e9e44; border-radius: 6px; }
       #solve select { max-width: 90px; }
@@ -66,6 +73,13 @@
       <svg id="view"></svg>
       <div id="hover" hidden></div>
     </main>
+    <div id="errbox" hidden>
+      <div class="errcard">
+        <b id="errtitle">Error</b>
+        <pre id="errmsg"></pre>
+        <button id="errclose">Close</button>
+      </div>
+    </div>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

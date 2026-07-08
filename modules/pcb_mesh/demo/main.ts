@@ -7,7 +7,9 @@
 import defaultBoard from "../../kicad_pcb_viewer/demo/poweramp.kicad_pcb?raw";
 import { wheelZoomFactor } from "../../kicad_pcb_viewer/src/interaction/controller.js";
 import { parsePcb, type Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
-import { buildBoardMesh } from "../src/build.js";
+import { extractCopper } from "../src/outline/copper.js";
+import { meshRegion } from "../src/mesh/triangulate.js";
+import { resolveOptions } from "../src/types.js";
 import { analyzeRegion } from "../src/verify.js";
 import { initRuppert, ruppertReady } from "../src/mesh/ruppert.js";
 import { solveNetResistance } from "../../solver_rdc/src/solve.js";
@@ -64,18 +66,89 @@ function activeLayers(): string[] {
   return [...layerSel.options].map((o) => o.value).filter((v) => v !== "*");
 }
 
-function rebuildMesh(): void {
-  // let the browser paint the progress state before the (main-thread) meshing work
-  statsEl.innerHTML = '<b>⏳ meshing…</b>';
-  setTimeout(rebuildMeshNow, 30);
+// ---- progress / logging / error surfacing ------------------------------------
+
+/** Yield to the browser so the just-set progress state actually paints. */
+const paint = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+
+function showProgress(msg: string, fraction?: number, detail?: string): void {
+  statsEl.replaceChildren();
+  const b = document.createElement("b");
+  b.textContent = `⏳ ${msg}`;
+  statsEl.appendChild(b);
+  if (fraction !== undefined) {
+    const bar = document.createElement("progress");
+    bar.max = 1;
+    bar.value = fraction;
+    statsEl.appendChild(bar);
+  }
+  if (detail) statsEl.appendChild(document.createTextNode(`\n${detail}`));
 }
 
-function rebuildMeshNow(): void {
-  const maxEdge = maxEdgeSel.value ? Number(maxEdgeSel.value) : undefined;
-  const refinement = refineSel.value as Refinement;
-  const t0 = performance.now();
-  mesh = buildBoardMesh(pcb, { layers: activeLayers(), maxEdgeLength: maxEdge, refinement, arcSegments: 24 });
-  const ms = performance.now() - t0;
+function showError(title: string, err: unknown): void {
+  console.error(`[pcb_mesh] ${title}:`, err);
+  const msg = err instanceof Error ? `${err.message}${err.stack ? `\n\n${err.stack}` : ""}` : String(err);
+  statsEl.textContent = `⚠ ${title} — see popup / console`;
+  (document.getElementById("errtitle")!).textContent = title;
+  (document.getElementById("errmsg")!).textContent = msg;
+  (document.getElementById("errbox") as HTMLDivElement).hidden = false;
+}
+document.getElementById("errclose")!.addEventListener("click", () => {
+  (document.getElementById("errbox") as HTMLDivElement).hidden = true;
+});
+
+// ---- mesh rebuild (incremental: progress per region, cancellable) -------------
+
+let buildSeq = 0;
+
+function rebuildMesh(): void {
+  void rebuildMeshAsync();
+}
+
+async function rebuildMeshAsync(): Promise<void> {
+  const seq = ++buildSeq;
+  try {
+    const maxEdge = maxEdgeSel.value ? Number(maxEdgeSel.value) : undefined;
+    const refinement = refineSel.value as Refinement;
+    const opts = { layers: activeLayers(), maxEdgeLength: maxEdge, refinement, arcSegments: 24 };
+
+    showProgress("extracting copper…");
+    await paint();
+    const t0 = performance.now();
+    const { regions: copper, report } = extractCopper(pcb, opts);
+    const tExtract = performance.now() - t0;
+    console.log(`[pcb_mesh] extracted ${copper.length} copper regions on ${opts.layers.join("+")} in ${tExtract.toFixed(0)} ms`);
+
+    const o = resolveOptions(opts);
+    const regions: typeof mesh.regions = [];
+    let slowest = { ms: 0, label: "" };
+    let lastPaint = performance.now();
+    for (let i = 0; i < copper.length; i++) {
+      if (seq !== buildSeq) return; // superseded by a newer rebuild — abandon quietly
+      const r = copper[i]!;
+      const tr = performance.now();
+      regions.push(meshRegion(r, o.maxEdgeLength, o.refinement));
+      const trMs = performance.now() - tr;
+      if (trMs > slowest.ms) slowest = { ms: trMs, label: `${r.layer}/${r.net || "(no net)"}` };
+      if (performance.now() - lastPaint > 100) {
+        showProgress(`meshing… ${i + 1}/${copper.length} regions`, (i + 1) / copper.length, `${r.layer} · ${r.net || "(unconnected)"}`);
+        await paint();
+        lastPaint = performance.now();
+      }
+    }
+    if (seq !== buildSeq) return;
+    report.degenerateTriangles = regions.reduce((s, r) => s + r.degenerateTriangles, 0);
+    report.refinementFallbacks = regions.reduce((s, r) => s + (r.refinementFellBack ? 1 : 0), 0);
+    mesh = { layers: opts.layers, regions, report };
+    const ms = performance.now() - t0;
+    console.log(`[pcb_mesh] meshed ${regions.length} regions in ${(ms - tExtract).toFixed(0)} ms (slowest: ${slowest.label} ${slowest.ms.toFixed(0)} ms)`);
+    finishRebuild(ms);
+  } catch (e) {
+    if (seq === buildSeq) showError("Meshing failed", e);
+  }
+}
+
+function finishRebuild(ms: number): void {
   const regions = mesh.regions;
   const tris = regions.reduce((s, r) => s + r.quality.triangleCount, 0);
   const slivers = regions.reduce((s, r) => s + r.quality.sliverCount, 0);
@@ -92,6 +165,7 @@ function rebuildMeshNow(): void {
     rep.copperTextIgnored && `⚠ ${rep.copperTextIgnored} copper text(s) not meshed`,
     rep.booleanFallbacks && `${rep.booleanFallbacks} boolean fallbacks`,
     rep.droppedPrimitives && `⚠ ${rep.droppedPrimitives} primitives DROPPED`,
+    rep.refinementFallbacks && `⚠ ${rep.refinementFallbacks} region(s) fell back to unguaranteed mesh`,
   ].filter(Boolean);
   statsEl.textContent =
     `${regions.length} net regions · ${tris.toLocaleString()} triangles\n` +
@@ -450,9 +524,11 @@ solveBtn.addEventListener("click", () => {
   }, 10);
 });
 
-function loadBoard(text: string): void {
+function loadBoard(text: string, name = "board"): void {
   try {
+    const t0 = performance.now();
     pcb = parsePcb(text);
+    console.log(`[pcb_mesh] parsed ${name} (${(text.length / 1e6).toFixed(1)} MB) in ${(performance.now() - t0).toFixed(0)} ms — ${pcb.footprints.length} footprints, ${pcb.tracks.length} tracks, ${pcb.vias.length} vias, ${pcb.zones.length} zone fills, ${pcb.nets.length} nets`);
     selectedNet = null;
     vbInitialized = false; // new board → fit view
     const layers = [...new Set([...pcb.tracks.map((t) => t.layer), ...pcb.zones.map((z) => z.layer), ...pcb.footprints.flatMap((f) => f.pads.flatMap((p) => p.layers)), ...pcb.graphics.map((g) => g.layer)])]
@@ -462,8 +538,7 @@ function loadBoard(text: string): void {
     rebuildMesh();
   } catch (e) {
     // never fail silently — the board didn't load, say so where the user looks
-    statsEl.textContent = `⚠ failed to load board: ${e instanceof Error ? e.message : e}`;
-    console.error(e);
+    showError(`Failed to load ${name}`, e);
   }
 }
 
@@ -473,7 +548,13 @@ refineSel.addEventListener("change", rebuildMesh);
 islandsOnlyEl.addEventListener("change", render);
 fileInput.addEventListener("change", async () => {
   const f = fileInput.files?.[0];
-  if (f) loadBoard(await f.text());
+  if (!f) return;
+  try {
+    showProgress(`reading ${f.name}…`);
+    loadBoard(await f.text(), f.name);
+  } catch (e) {
+    showError(`Failed to read ${f.name}`, e);
+  }
 });
 
 // load the WASM quality mesher; fall back to cdt2d if the pkg isn't built

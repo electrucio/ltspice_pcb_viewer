@@ -19,7 +19,7 @@
 import pc from "polygon-clipping";
 import type { BoardGraphic, FpGraphic, Pcb, Pad, Via } from "../../../kicad_pcb_viewer/src/parser/pcb.js";
 import type { MultiPolygon, Polygon, Ring, SanitationReport } from "../types.js";
-import { emptySanitationReport, multiPolygonArea, openRing, resolveOptions, type CopperRegion, type MeshOptions } from "../types.js";
+import { emptySanitationReport, multiPolygonArea, openRing, resolveOptions, ringArea, type CopperRegion, type MeshOptions } from "../types.js";
 import { circleOutline, padArcRadius, padDrillOutline, padOutline, segmentsForRadius, stadiumOutline, trackOutline, viaDrillOutline, viaOutline } from "./primitives.js";
 import { simplifyMultiPolygon } from "./simplify.js";
 
@@ -144,16 +144,38 @@ export function extractCopper(pcb: Pcb, options?: MeshOptions): ExtractResult {
   const copperOrder = copperOrderOf(pcb);
   const segs = (radius: number) => Math.max(o.arcSegments, segmentsForRadius(radius, o.chordTolerance));
 
-  const normalize = (mp: ReturnType<typeof pc.union>): MultiPolygon =>
-    mp.map((poly) =>
-      poly
-        .map((ring) => openRing(ring as Ring))
-        .filter((r) => {
-          if (r.length >= 3) return true;
-          report.degenerateRings++;
-          return false;
-        }),
-    ).filter((poly) => poly.length > 0 && poly[0]!.length >= 3);
+  // Boolean-union output vertices are NOT on the snap grid (intersection points are
+  // computed exactly), so rings can carry consecutive near-duplicate points and
+  // sliver rings of ~zero area — both crash downstream refiners (spade panicked on a
+  // 3-point hole with a 1.3e-8 mm edge, One-Air-Max PGND). Collapse + drop them here.
+  const COLLAPSE = 1e-6; // mm — the snap grid; nothing meaningful is finer
+  const MIN_RING_AREA = 1e-8; // mm² — far below any real copper feature
+  const cleanRing = (ring: Ring): Ring | null => {
+    const out: Ring = [];
+    for (const p of ring) {
+      const prev = out[out.length - 1];
+      if (prev && Math.hypot(p[0] - prev[0], p[1] - prev[1]) < COLLAPSE) continue;
+      out.push(p);
+    }
+    while (out.length > 1 && Math.hypot(out[0]![0] - out[out.length - 1]![0], out[0]![1] - out[out.length - 1]![1]) < COLLAPSE) out.pop();
+    if (out.length < 3 || Math.abs(ringArea(out)) < MIN_RING_AREA) return null;
+    return out;
+  };
+  const normalize = (mp: ReturnType<typeof pc.union>): MultiPolygon => {
+    const out: MultiPolygon = [];
+    for (const poly of mp) {
+      const outer = poly.length ? cleanRing(openRing(poly[0] as Ring)) : null;
+      if (!outer) { report.degenerateRings += poly.length; continue; } // degenerate outer drops the island
+      const rings: Ring[] = [outer];
+      for (let h = 1; h < poly.length; h++) {
+        const hole = cleanRing(openRing(poly[h] as Ring));
+        if (hole) rings.push(hole);
+        else report.degenerateRings++;
+      }
+      out.push(rings);
+    }
+    return out;
+  };
 
   for (const layer of layers) {
     for (const t of pcb.texts) if (t.layer === layer) report.copperTextIgnored++;

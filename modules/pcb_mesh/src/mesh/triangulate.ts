@@ -196,10 +196,19 @@ export function meshArea(mesh: RawMesh): number {
 /** Triangulate (and optionally refine) one copper region into its final RegionMesh. */
 export function meshRegion(region: CopperRegion, targetEdge: number, refinement: "ruppert" | "delaunay" | "bisect" = "delaunay"): RegionMesh {
   let base: RawMesh;
+  let fellBack = false;
   if (refinement === "ruppert") {
     // quality-guaranteed CDT (WASM); bounds angle + area, so no straggler bisection —
     // it would only damage the angle guarantee
-    base = triangulateRuppert(region.polygons, targetEdge);
+    try {
+      base = triangulateRuppert(region.polygons, targetEdge);
+    } catch (err) {
+      // a WASM panic (RuntimeError: unreachable) must never kill the whole board —
+      // fall back to the non-guaranteed path for this ONE region and report it
+      console.warn(`Ruppert refinement failed on ${region.layer}/${region.net || "(no net)"} — falling back`, err);
+      fellBack = true;
+      base = Number.isFinite(targetEdge) && targetEdge > 0 ? triangulateQuality(region.polygons, targetEdge) : triangulateMultiPolygon(region.polygons);
+    }
   } else if (Number.isFinite(targetEdge) && targetEdge > 0 && refinement === "delaunay") {
     // generate homogeneous triangles directly; bisect the few boundary stragglers
     base = triangulateQuality(region.polygons, targetEdge);
@@ -207,8 +216,9 @@ export function meshRegion(region: CopperRegion, targetEdge: number, refinement:
     base = triangulateMultiPolygon(region.polygons);
   }
   const clean = dropDegenerate(base);
-  const raw = refinement === "ruppert" ? clean : refineToEdgeLength(clean, targetEdge);
+  const raw = refinement === "ruppert" && !fellBack ? clean : refineToEdgeLength(clean, targetEdge);
   return {
+    refinementFellBack: fellBack || undefined,
     layer: region.layer,
     net: region.net,
     islands: region.polygons.length,

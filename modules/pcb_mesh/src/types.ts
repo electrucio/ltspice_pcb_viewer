@@ -60,12 +60,16 @@ export interface SanitationReport {
   booleanFallbacks: number;
   /** primitives dropped because no boolean fallback succeeded — copper may be missing */
   droppedPrimitives: number;
+  /** regions where Ruppert crashed and a non-guaranteed mesh was substituted */
+  refinementFallbacks: number;
 }
 
 /** Triangulated copper region — the unit solvers will consume. */
 export interface RegionMesh {
   layer: string;
   net: string;
+  /** true when Ruppert refinement crashed and a non-guaranteed mesh was used */
+  refinementFellBack?: boolean;
   /** disjoint copper islands in this region — >1 on a routed net deserves a look */
   islands: number;
   /** hole rings (drills, clearance voids) across all islands */
@@ -172,6 +176,7 @@ export function emptySanitationReport(): SanitationReport {
     copperTextIgnored: 0,
     booleanFallbacks: 0,
     droppedPrimitives: 0,
+    refinementFallbacks: 0,
   };
 }
 
