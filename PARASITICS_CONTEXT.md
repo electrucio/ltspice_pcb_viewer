@@ -98,8 +98,21 @@ Current status:
   small" — so the network-level number wasn't obtainable headless.) Our FEM
   3.807 mΩ sits below both shortest-path numbers, as it must (parallel
   copper).
-- **M3, M5–M8** — not started. Next: M5 RLGC (papers in ~/git/papers),
-  app-level integration, plane-net fast preview.
+- **M5 begun — Hammerstad–Jensen microstrip (analytic_models/src/microstrip.ts)**:
+  eqs (1)–(12) of the 1980 paper (statics, Wheeler-style thickness correction,
+  Getsinger dispersion with HJ's G), returning Z0/ε_eff (static + at f) and the
+  L/C/delay per metre. Verified three ways: 72-row fixture grid matches KiCad 9's
+  independent transcription to 1e-12 (fixtures minted by compiling the GPL
+  reference in scratch — reference copy at
+  ~/git/papers/kicad9-microstrip-reference.cpp, never our code); physical-limit
+  property tests (εeff bounds/monotonicity, parallel-plate limit, dispersion
+  f→0/f→∞, RLGC identities); folklore 50 Ω FR4 = 50.17 Ω, εeff 3.42. NOTE:
+  paper eq (11) G is OCR-illegible in our scan — transcribed in its canonical
+  form (π²/12·(εr−1)/εeff·√(2πZ0/η0)) and pinned by limit tests; KiCad uses
+  Kirschning–Jansen instead so no numeric cross for dispersion yet.
+- **M5 next**: Wheeler 1977 stripline, loss models (HJ eqs 33–38 + roughness),
+  net-segment classifier (microstrip vs stripline from stackup), per-segment
+  RLGC output contract. Then app-level integration, plane-net fast preview.
 
 ## 2. Module: `modules/pcb_mesh` (TypeScript)
 

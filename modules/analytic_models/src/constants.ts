@@ -26,6 +26,11 @@ export const ALPHA_COPPER = 0.00393;
 export const COPPER_REF_TEMP_C = 20;
 
 /**
+ * Speed of light in vacuum, m/s (SI exact, by definition of the metre).
+ */
+export const C0 = 299792458;
+
+/**
  * Extra squares contributed by a 90° corner in a uniform-width trace, beyond the
  * straight centerline count. Jaeger's classical result (≈0.56 sq — the corner square
  * conducts better than a full square because current crowds the inside edge); see
