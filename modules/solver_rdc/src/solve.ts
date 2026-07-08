@@ -78,6 +78,11 @@ export interface SolveResult {
   conservationError: number;
   /** per-via barrel currents (present when lumpedVias is on), largest first */
   viaCurrents?: ViaCurrent[];
+  /**
+   * solved potential of every terminal (equipotential node), V at the 1 V A→B
+   * drive — four-point readouts (van der Pauw, Kelvin sensing) read from here
+   */
+  terminalPotentials: Array<{ id: string; potential: number }>;
   /** present when options.returnField was set */
   field?: LayerField[];
 }
@@ -332,5 +337,6 @@ export function solveNetResistance(
     skippedTerminals,
     conservationError: Math.abs(iA + iB) / Math.abs(iA),
     viaCurrents,
+    terminalPotentials: [...rootByTerminalId.entries()].map(([id, root]) => ({ id, potential: potential(root) })),
   };
 }

@@ -74,8 +74,20 @@ Current status:
   = relError ≤ 5%. Tests: bar brackets analytic truth on strip AND L-bend, bar
   shrinks with h. Demo shows "R = 3.807 mΩ ± 0.32%" (poweramp, 242 ms both
   passes at h=0.8) and flags UNCONVERGED.
-- **M3, M5–M8** — not started. Next (P2): power display, verification bench
-  (van der Pauw property test, KiPIDA cross-run), app-level integration.
+- **Power display (P2.4) — DONE**: demo solve panel takes a current, shows
+  P = I²R + peak areal power, and the overlay has a J²·Rs power-density mode
+  (per-layer Rs from the stackup). Linear problem → I changes rescale without
+  re-solving.
+- **Verification bench (P2.5)**: `SolveResult.terminalPotentials` exposes every
+  terminal's solved V (four-point readouts). **van der Pauw CI test**
+  (test/vdp.test.ts): exp(−πR₁/Rs)+exp(−πR₂/Rs)=1 holds to <2% on a square
+  (corner R also matches Rs·ln2/π) AND on an asymmetric blob — a parameter-free,
+  shape-independent oracle no closed-form fixture can replace. **KiPIDA
+  cross-run is manual** (it's a KiCad-9 IPC plugin; needs the GUI): install per
+  its README, run IR-drop on poweramp /POW1 R2.1→R9.1 (expect ~3.8 mΩ ± few %,
+  its grid solver differs by design) — record results here when run.
+- **M3, M5–M8** — not started. Next: M5 RLGC (papers in ~/git/papers),
+  app-level integration, plane-net fast preview.
 
 ## 2. Module: `modules/pcb_mesh` (TypeScript)
 
