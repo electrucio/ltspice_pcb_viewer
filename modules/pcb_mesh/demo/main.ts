@@ -65,6 +65,12 @@ function activeLayers(): string[] {
 }
 
 function rebuildMesh(): void {
+  // let the browser paint the progress state before the (main-thread) meshing work
+  statsEl.innerHTML = '<b>⏳ meshing…</b>';
+  setTimeout(rebuildMeshNow, 30);
+}
+
+function rebuildMeshNow(): void {
   const maxEdge = maxEdgeSel.value ? Number(maxEdgeSel.value) : undefined;
   const refinement = refineSel.value as Refinement;
   const t0 = performance.now();
@@ -83,6 +89,7 @@ function rebuildMesh(): void {
     rep.degenerateRings && `${rep.degenerateRings} degenerate rings`,
     rep.emptyRegions && `${rep.emptyRegions} vanished regions (NPTH)`,
     rep.degenerateTriangles && `${rep.degenerateTriangles} zero-area tris dropped`,
+    rep.copperTextIgnored && `⚠ ${rep.copperTextIgnored} copper text(s) not meshed`,
     rep.booleanFallbacks && `${rep.booleanFallbacks} boolean fallbacks`,
     rep.droppedPrimitives && `⚠ ${rep.droppedPrimitives} primitives DROPPED`,
   ].filter(Boolean);

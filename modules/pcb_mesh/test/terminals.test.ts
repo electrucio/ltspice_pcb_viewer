@@ -97,3 +97,28 @@ describe("terminal meshes", () => {
     for (const t of tm.terminals) expect(t.vertexIndices.length).toBeGreaterThan(3);
   });
 });
+
+describe("via span semantics (through-vias list only outer layers)", () => {
+  it("a through-via stitches inner layers it passes through", () => {
+    // net routed on In2.Cu only reachable through a via whose file layers are F/B
+    const pcb = makePcb({
+      layers: ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"],
+      copperStack: ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"],
+      tracks: [
+        { start: { x: 0, y: 0 }, end: { x: 5, y: 0 }, width: 0.3, layer: "F.Cu", net: "N1" },
+        { start: { x: 5, y: 0 }, end: { x: 10, y: 0 }, width: 0.3, layer: "In2.Cu", net: "N1" },
+        { start: { x: 0, y: 5 }, end: { x: 1, y: 5 }, width: 0.3, layer: "In1.Cu", net: "N1" }, // forces In1 into copperLayers
+      ],
+      vias: [{ pos: { x: 5, y: 0 }, size: 0.8, drill: 0.4, layers: ["F.Cu", "B.Cu"], net: "N1" }],
+    });
+    const tmIn2 = buildTerminalMesh(pcb, "In2.Cu", "N1", { refinement: "ruppert", maxEdgeLength: 0.2 })!;
+    // the via must exist as a terminal on the inner layer it spans
+    expect(tmIn2.terminals.some((t) => t.kind === "via")).toBe(true);
+    // and its ring vertices sit on the annulus midline (r = (0.2+0.4)/2 = 0.3)
+    const via = tmIn2.terminals.find((t) => t.kind === "via")!;
+    for (const vi of via.vertexIndices.slice(0, 5)) {
+      const x = tmIn2.mesh.vertices[2 * vi]! - 5, y = tmIn2.mesh.vertices[2 * vi + 1]!;
+      expect(Math.hypot(x, y)).toBeCloseTo(0.3, 3);
+    }
+  });
+});

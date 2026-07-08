@@ -28,7 +28,7 @@ function zonePcb(pts: Array<[number, number]>, pads: Pad[]): Pcb {
     footprints: pads.map((p) => fp([p])),
     tracks: [], vias: [],
     zones: [{ layer: "F.Cu", net: "N1", pts: pts.map(([x, y]) => ({ x, y })) }],
-    graphics: [], nets: ["N1"], layers: ["F.Cu"],
+    graphics: [], texts: [], nets: ["N1"], layers: ["F.Cu"], copperStack: ["F.Cu"],
     bbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 },
   };
 }

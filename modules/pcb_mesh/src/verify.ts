@@ -25,7 +25,7 @@ import type { BBox, BoardGraphic, Pad, Pcb, Track, Via, ZoneFill } from "../../k
 import { rotate } from "../../kicad_pcb_viewer/src/geometry/transform.js";
 import type { MeshOptions, MeshQuality, MultiPolygon } from "./types.js";
 import { multiPolygonArea, resolveOptions } from "./types.js";
-import { extractCopperRegions, padOnLayer } from "./outline/copper.js";
+import { copperOrderOf, extractCopperRegions, padOnLayer, viaSpansLayer } from "./outline/copper.js";
 import { meshRegion } from "./mesh/triangulate.js";
 
 export interface MonteCarloArea {
@@ -334,7 +334,8 @@ export function analyzeRegion(pcb: Pcb, layer: string, net: string, options?: An
 
   // primitives of this (layer, net)
   const tracks = pcb.tracks.filter((t) => t.layer === layer && t.net === net);
-  const vias = pcb.vias.filter((v) => (v.layers.length === 0 || v.layers.includes(layer)) && v.net === net);
+  const copperOrder = copperOrderOf(pcb);
+  const vias = pcb.vias.filter((v) => viaSpansLayer(v, layer, copperOrder) && v.net === net);
   const pads: Pad[] = [];
   for (const f of pcb.footprints) for (const p of f.pads) if (padOnLayer(p, layer) && p.net === net) pads.push(p);
   const zones = o.includeZones ? pcb.zones.filter((z) => z.layer === layer && z.net === net) : [];
@@ -358,7 +359,7 @@ export function analyzeRegion(pcb: Pcb, layer: string, net: string, options?: An
   const drillTests: PointTest[] = [];
   if (o.subtractDrills) {
     for (const v of pcb.vias)
-      if (v.layers.length === 0 || v.layers.includes(layer)) {
+      if (viaSpansLayer(v, layer, copperOrder)) {
         const r = v.drill / 2;
         drillTests.push((x, y) => Math.hypot(x - v.pos.x, y - v.pos.y) <= r);
       }

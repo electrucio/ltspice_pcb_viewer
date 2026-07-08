@@ -12,16 +12,26 @@
       "import": "./dist/ltspice_kicad_mapper.js"
     }
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
-    "dev": "vite demo",
+    "dev": "vite demo --config vite.config.ts",
     "build": "vite build",
-    "preview": "vite preview demo",
+    "preview": "vite preview demo --config vite.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": ["ltspice", "kicad", "mapping", "netlist", "eda", "web-component"],
+  "keywords": [
+    "ltspice",
+    "kicad",
+    "mapping",
+    "netlist",
+    "eda",
+    "web-component"
+  ],
   "license": "MIT",
   "devDependencies": {
     "typescript": "^5.6.0",

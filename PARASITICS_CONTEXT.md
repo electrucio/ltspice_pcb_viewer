@@ -216,7 +216,16 @@ demo falls back to cdt2d when missing). Toolchain via `brew install rustup wasm-
   **KiCad 9/10 graphic shapes on copper can carry `(net "…")` and are then real,
   connected copper** (a `gr_poly` patched Net-(Q4-E) on this board — parser reads the
   net, extraction/MC-verifier include fill + stroke stadiums); zones with `(keepout …)`
-  and no `filled_polygon` are rule areas, not missing fills.
+  and no `filled_polygon` are rule areas, not missing fills;
+  **a via's `(layers A B)` is a SPAN** — through-vias list only F/B but connect every
+  inner layer between (fixed net-288-style false disconnections on 4-layer boards);
+  **the `(layers …)` table's numeric ids are legacy-stable, NOT ordered** (B.Cu is
+  always 2, inners 4, 6…) — the physical copper stack is the table's TEXTUAL order
+  (`Pcb.copperStack`); `fp_poly` on copper (microwave footprints) is real copper with
+  no net — inferred from the footprint's unique pad net; `gr_text` on copper is real
+  copper we render but cannot mesh yet (counted as `copperTextIgnored`);
+  via TERMINALS use the annulus midline circle (r = (drill+size)/4), never an inset
+  of the outer ring (vias are wider than their traces).
 
 ## 7. Where things live
 
@@ -230,8 +239,8 @@ modules/analytic_models/README.md     M0 oracle: slices, sources, verification
 ~/git/atlc                            atlc 4.6.1 source (M5 numerical oracle; SF .tar.gz is corrupt, use .tar.bz2)
 ~/git/kicad                           sparse clone: pcb_calculator/transline (HJ formulas) + demos (4–12 layer boards)
 ~/git/FastCap2 FasterCap FastHenry2   ediloren mirrors (M6/M7 golden-reference solvers)
-~/git/papers                          wcalc + Qucs transline docs (open HJ equation sources);
-                                      HJ 1980 & Wheeler 1977 originals are IEEE-paywalled — user to fetch
+~/git/papers                          Hammerstad–Jensen 1980 + Wheeler 1977 PDFs (user-provided —
+                                      M0/M5 transcription sources secured) + wcalc/Qucs docs
 modules/pcb_mesh/README.md            pipeline, strategies, invariants, numbers
 modules/geometry_core/README.md       kernel API, build, measurements
 modules/pcb_mesh/scripts/             profile-mesh.ts, bench-ruppert*.ts (dev tools)

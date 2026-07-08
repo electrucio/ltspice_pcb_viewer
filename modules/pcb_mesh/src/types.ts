@@ -54,6 +54,8 @@ export interface SanitationReport {
   simplifiedVertices: number;
   /** footprint copper graphics whose net could not be inferred from the pads */
   orphanCopperGraphics: number;
+  /** gr_text on copper layers — real copper the mesher can't stroke yet (ignored) */
+  copperTextIgnored: number;
   /** boolean ops that needed the jitter fallback (polygon-clipping robustness) */
   booleanFallbacks: number;
   /** primitives dropped because no boolean fallback succeeded — copper may be missing */
@@ -167,6 +169,7 @@ export function emptySanitationReport(): SanitationReport {
     degenerateTriangles: 0,
     simplifiedVertices: 0,
     orphanCopperGraphics: 0,
+    copperTextIgnored: 0,
     booleanFallbacks: 0,
     droppedPrimitives: 0,
   };

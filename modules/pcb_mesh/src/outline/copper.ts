@@ -17,7 +17,7 @@
  */
 
 import pc from "polygon-clipping";
-import type { BoardGraphic, FpGraphic, Pcb, Pad } from "../../../kicad_pcb_viewer/src/parser/pcb.js";
+import type { BoardGraphic, FpGraphic, Pcb, Pad, Via } from "../../../kicad_pcb_viewer/src/parser/pcb.js";
 import type { MultiPolygon, Polygon, Ring, SanitationReport } from "../types.js";
 import { emptySanitationReport, multiPolygonArea, openRing, resolveOptions, type CopperRegion, type MeshOptions } from "../types.js";
 import { circleOutline, padArcRadius, padDrillOutline, padOutline, segmentsForRadius, stadiumOutline, trackOutline, viaDrillOutline, viaOutline } from "./primitives.js";
@@ -83,12 +83,32 @@ export interface ExtractResult {
   report: SanitationReport;
 }
 
+/**
+ * Does a via reach `layer`? A via's `(layers A B)` is a SPAN — it connects every
+ * copper layer between A and B (through-vias list only "F.Cu"/"B.Cu" but pass through
+ * the inner layers too). `copperOrder` is the board's copper stack order.
+ */
+export function viaSpansLayer(v: Via, layer: string, copperOrder: string[]): boolean {
+  if (v.layers.length === 0) return true;
+  if (v.layers.includes(layer)) return true;
+  const idx = copperOrder.indexOf(layer);
+  if (idx < 0) return false;
+  const ends = v.layers.map((l) => copperOrder.indexOf(l)).filter((i) => i >= 0);
+  if (ends.length < 2) return false;
+  return idx > Math.min(...ends) && idx < Math.max(...ends);
+}
+
 /** Does a pad put copper on `layer`? (`*.Cu` = every copper layer,
  *  `F&B.Cu` = both outer layers — seen on real boards, e.g. KiCad's cm5_minima.) */
 export function padOnLayer(p: Pad, layer: string): boolean {
   return p.layers.some(
     (l) => l === layer || l === "*.Cu" || (l === "F&B.Cu" && (layer === "F.Cu" || layer === "B.Cu")),
   );
+}
+
+/** Copper stack order for span questions: the file's declared stack when present. */
+export function copperOrderOf(pcb: Pcb): string[] {
+  return pcb.copperStack.length ? pcb.copperStack : copperLayers(pcb);
 }
 
 /** Copper layers with content, in KiCad stacking order (F.Cu first, B.Cu last). */
@@ -102,8 +122,13 @@ export function copperLayers(pcb: Pcb): string[] {
         if (l === "F&B.Cu") { seen.add("F.Cu"); seen.add("B.Cu"); continue; } // both outers, not a layer
         if (l.endsWith(".Cu") && !l.startsWith("*")) seen.add(l);
       }
-  const order = (l: string) => (l === "F.Cu" ? 0 : l === "B.Cu" ? 2 : 1);
-  return [...seen].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
+  const rank = (l: string) => {
+    if (l === "F.Cu") return 0;
+    if (l === "B.Cu") return 1e9;
+    const m = /^In(\d+)\.Cu$/.exec(l);
+    return m ? Number(m[1]) : 1e8; // inner layers are numbered top-down
+  };
+  return [...seen].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
 
 /**
@@ -116,6 +141,7 @@ export function extractCopper(pcb: Pcb, options?: MeshOptions): ExtractResult {
   const netFilter = o.nets ? new Set(o.nets) : null;
   const regions: CopperRegion[] = [];
   const report = emptySanitationReport();
+  const copperOrder = copperOrderOf(pcb);
   const segs = (radius: number) => Math.max(o.arcSegments, segmentsForRadius(radius, o.chordTolerance));
 
   const normalize = (mp: ReturnType<typeof pc.union>): MultiPolygon =>
@@ -130,6 +156,7 @@ export function extractCopper(pcb: Pcb, options?: MeshOptions): ExtractResult {
     ).filter((poly) => poly.length > 0 && poly[0]!.length >= 3);
 
   for (const layer of layers) {
+    for (const t of pcb.texts) if (t.layer === layer) report.copperTextIgnored++;
     // 1) collect primitive outlines per net (tracking each net's bbox as we go)
     const byNet = new Map<string, Polygon[]>();
     const netBBox = new Map<string, { minX: number; minY: number; maxX: number; maxY: number }>();
@@ -157,7 +184,7 @@ export function extractCopper(pcb: Pcb, options?: MeshOptions): ExtractResult {
         add(t.net, trackOutline(t, segs(t.width / 2)));
       }
     for (const v of pcb.vias)
-      if (v.layers.length === 0 || v.layers.includes(layer)) add(v.net, viaOutline(v, segs(v.size / 2)));
+      if (viaSpansLayer(v, layer, copperOrder)) add(v.net, viaOutline(v, segs(v.size / 2)));
     for (const f of pcb.footprints)
       for (const p of f.pads)
         if (padOnLayer(p, layer)) {
@@ -223,7 +250,7 @@ export function extractCopper(pcb: Pcb, options?: MeshOptions): ExtractResult {
     };
     if (o.subtractDrills) {
       for (const v of pcb.vias)
-        if (v.layers.length === 0 || v.layers.includes(layer)) addDrill(snapRing(viaDrillOutline(v, segs(v.drill / 2))));
+        if (viaSpansLayer(v, layer, copperOrder)) addDrill(snapRing(viaDrillOutline(v, segs(v.drill / 2))));
       for (const f of pcb.footprints)
         for (const p of f.pads) {
           if (!p.thruHole) continue;

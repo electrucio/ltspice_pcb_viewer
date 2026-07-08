@@ -203,6 +203,17 @@ export function renderPcb(pcb: Pcb): RenderResult {
     if (sl) { const node = strokeGraphic(g, "pcb-silk"); if (node) into(sl).appendChild(node); }
   }
 
+  // board text (gr_text): silk + copper layers; mirrored text (bottom side) flips
+  for (const t of pcb.texts) {
+    const grp = silkOf(t.layer) ?? (t.layer.endsWith(".Cu") && groups.has(t.layer) ? t.layer : null);
+    if (!grp) continue;
+    const el2 = el("text", { x: 0, y: 0, "font-size": t.size, "text-anchor": "middle", "dominant-baseline": "middle" });
+    el2.setAttribute("class", t.layer.endsWith(".Cu") ? `pcb-copper-text layer-${layerId(t.layer)}` : "pcb-silk-text");
+    el2.setAttribute("transform", `translate(${t.pos.x} ${t.pos.y}) rotate(${-t.angle})${t.mirror ? " scale(-1 1)" : ""}`);
+    el2.textContent = t.text.replace(/\\n/g, " ");
+    into(grp).appendChild(el2);
+  }
+
   // board outline (Edge.Cuts) + any other gr_ we want visible
   for (const g of pcb.graphics) {
     if (g.layer !== "Edge.Cuts") continue;

@@ -19,8 +19,8 @@ import pc from "polygon-clipping";
 import type { Pcb } from "../../../kicad_pcb_viewer/src/parser/pcb.js";
 import type { MeshOptions, MultiPolygon, Polygon, RegionMesh, Ring, Vec2 } from "../types.js";
 import { resolveOptions } from "../types.js";
-import { extractCopperRegions, padOnLayer } from "../outline/copper.js";
-import { padArcRadius, padOutline, segmentsForRadius, viaOutline } from "../outline/primitives.js";
+import { copperOrderOf, extractCopperRegions, padOnLayer, viaSpansLayer } from "../outline/copper.js";
+import { circleOutline, padArcRadius, padOutline, segmentsForRadius } from "../outline/primitives.js";
 import { meshRegion } from "./triangulate.js";
 
 export interface Terminal {
@@ -188,12 +188,20 @@ export function buildTerminalMesh(pcb: Pcb, layer: string, net: string, options?
       const ring = insetRing(padOutline(p, segs(padArcRadius(p))), inset);
       if (ring) specs.push({ id: `${p.ref}.${p.number}`, kind: "pad", refs: [`${p.ref}.${p.number}`], rings: [ring] });
     }
-  if (options?.viaTerminals ?? true)
+  if (options?.viaTerminals ?? true) {
+    const copperOrder = copperOrderOf(pcb);
     for (const v of pcb.vias) {
-      if (v.net !== net || (v.layers.length > 0 && !v.layers.includes(layer))) continue;
-      const ring = insetRing(viaOutline(v, segs(v.size / 2)), Math.min(inset, v.size / 8));
-      if (ring) specs.push({ id: `via@${v.pos.x},${v.pos.y}`, kind: "via", refs: [], rings: [ring] });
+      if (v.net !== net || !viaSpansLayer(v, layer, copperOrder)) continue;
+      // annulus MIDLINE circle, not an inset of the outer ring: a via is usually wider
+      // than the traces it joins, so its outer ring sticks out of the copper boundary
+      // (an inset ring would cross it and get skipped). The midline is guaranteed
+      // strictly inside the annulus copper.
+      const rMid = (v.drill / 2 + v.size / 2) / 2;
+      if (rMid <= v.drill / 2) continue; // degenerate barrel
+      const ring = circleOutline(v.pos.x, v.pos.y, rMid, segs(rMid));
+      specs.push({ id: `via@${v.pos.x},${v.pos.y}`, kind: "via", refs: [], rings: [ring] });
     }
+  }
 
   const merged = mergeOverlapping(specs);
   const skipped: string[] = [];

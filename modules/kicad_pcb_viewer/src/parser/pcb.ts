@@ -79,6 +79,18 @@ export type BoardGraphic = { net?: string } & (
   | { kind: "poly"; layer: string; pts: Point[]; width: number; fill: boolean }
 );
 
+/** Board-level text (gr_text). On copper layers this is real copper the mesher
+ *  cannot yet reproduce (font stroking) — counted there, rendered here. */
+export interface BoardText {
+  text: string;
+  pos: Point;
+  angle: number;
+  layer: string;
+  /** font height, mm (default 1.27) */
+  size: number;
+  mirror: boolean;
+}
+
 export interface BBox {
   minX: number;
   minY: number;
@@ -92,8 +104,12 @@ export interface Pcb {
   vias: Via[];
   zones: ZoneFill[];
   graphics: BoardGraphic[]; // gr_* (board outline on Edge.Cuts, other layers)
+  texts: BoardText[]; // gr_text on any layer
   nets: string[];
   layers: string[]; // layer names present
+  /** copper layer names in physical stack order (from the file's `(layers …)`
+   *  declaration, F.Cu → … → B.Cu) — the authority for via SPAN questions */
+  copperStack: string[];
   bbox: BBox;
 }
 
@@ -260,7 +276,20 @@ export function parsePcb(text: string, sign: number = ROT_SIGN): Pcb {
   const root = parseSExpr(text);
   if (root.name !== "kicad_pcb") throw new Error(`Not a kicad_pcb file (root is "${root.name}")`);
 
+  // declared copper stack: KiCad writes the copper layers of the `(layers …)` table
+  // in PHYSICAL order (F.Cu, In1…, B.Cu) — the numeric ids are legacy-stable and NOT
+  // ordered (B.Cu is always 2, inner layers 4, 6, …), so keep the textual order.
+  const copperStack: string[] = [];
+  const layersDecl = child(root, "layers");
+  if (layersDecl) {
+    for (const l of layersDecl.children) {
+      const name = String(l.values[0] ?? "");
+      if (Number.isFinite(Number(l.name)) && name.endsWith(".Cu")) copperStack.push(name);
+    }
+  }
+
   const footprints: Footprint[] = [];
+  const texts: BoardText[] = [];
   const tracks: Track[] = [];
   const vias: Via[] = [];
   const zones: ZoneFill[] = [];
@@ -297,6 +326,22 @@ export function parsePcb(text: string, sign: number = ROT_SIGN): Pcb {
         if (net) netSet.add(net);
         break;
       }
+      case "gr_text": {
+        const a = at(child(node, "at"));
+        const effects = child(node, "effects");
+        const font = effects ? child(effects, "font") : undefined;
+        const size = font ? (nums(child(font, "size"))[0] ?? 1.27) : 1.27;
+        const justify = effects ? child(effects, "justify") : undefined;
+        texts.push({
+          text: String(node.values[0] ?? ""),
+          pos: { x: a.x, y: a.y },
+          angle: a.angle,
+          layer: childStr(node, "layer") ?? "",
+          size,
+          mirror: justify ? justify.values.map(String).includes("mirror") : false,
+        });
+        break;
+      }
       default: {
         const g = readBoardGraphic(node);
         if (g) {
@@ -322,5 +367,5 @@ export function parsePcb(text: string, sign: number = ROT_SIGN): Pcb {
     for (const f of footprints) for (const p of f.pads) grow(bbox, p.pos);
   }
 
-  return { footprints, tracks, vias, zones, graphics, nets: [...netSet].sort(), layers: [...new Set([...tracks.map((t) => t.layer), ...graphics.map((g) => g.layer)])], bbox };
+  return { footprints, tracks, vias, zones, graphics, texts, copperStack, nets: [...netSet].sort(), layers: [...new Set([...tracks.map((t) => t.layer), ...graphics.map((g) => g.layer)])], bbox };
 }

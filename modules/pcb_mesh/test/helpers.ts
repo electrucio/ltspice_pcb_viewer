@@ -7,8 +7,10 @@ export function makePcb(partial: Partial<Pcb>): Pcb {
     vias: [],
     zones: [],
     graphics: [],
+    texts: [],
     nets: [],
     layers: [],
+    copperStack: ["F.Cu", "B.Cu"],
     bbox: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
     ...partial,
   };

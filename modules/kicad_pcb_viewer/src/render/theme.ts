@@ -49,6 +49,10 @@ svg.pcb-panning { cursor: grabbing; }
 .pcb-silk.filled { fill: var(--pcb-silk); }
 .pcb-edge { stroke: var(--pcb-edge); fill: none; stroke-linecap: round; pointer-events: none; }
 .pcb-ref { fill: var(--pcb-silk); pointer-events: none; }
+.pcb-silk-text { fill: var(--pcb-silk); pointer-events: none; }
+.pcb-copper-text { pointer-events: none; }
+.pcb-copper-text.layer-F_Cu { fill: var(--pcb-fcu); }
+.pcb-copper-text.layer-B_Cu { fill: var(--pcb-bcu); }
 
 .pcb-track-hit:hover, .pcb-pad:hover, .pcb-via:hover, .pcb-zone:hover { cursor: pointer; }
 

@@ -16,10 +16,10 @@
     "dist"
   ],
   "scripts": {
-    "dev": "vite demo",
+    "dev": "vite demo --config vite.config.ts",
     "build": "tsc --emitDeclarationOnly && vite build",
     "build:demo": "vite build --config vite.demo.config.ts",
-    "preview": "vite preview demo",
+    "preview": "vite preview demo --config vite.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

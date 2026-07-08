@@ -55,3 +55,26 @@ describe("kicad_pcb parser", () => {
     expect(pcb.graphics.some((g) => g.layer === "Edge.Cuts")).toBe(true);
   });
 });
+
+describe("board text (gr_text)", () => {
+  it("reads copper text (real copper on B.Cu) and silk text", () => {
+    const cu = pcb.texts.find((t) => t.layer === "B.Cu")!;
+    expect(cu.text).toBe("v1.0");
+    expect(cu.size).toBeGreaterThan(0);
+    expect(pcb.texts.some((t) => t.layer === "F.SilkS")).toBe(true);
+  });
+
+  it("declares the copper stack in physical order", () => {
+    expect(pcb.copperStack).toEqual(["F.Cu", "B.Cu"]);
+  });
+});
+
+describe("copper stack order (multilayer)", () => {
+  it("uses the declaration's textual order, not the legacy numeric ids", () => {
+    // KiCad ids are stable, not ordered: B.Cu is always 2, inner layers 4, 6, …
+    const text = `(kicad_pcb (version 20241229) (generator "pcbnew")
+      (layers (0 "F.Cu" signal) (4 "In1.Cu" signal) (6 "In2.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))
+    )`;
+    expect(parsePcb(text).copperStack).toEqual(["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]);
+  });
+});

@@ -12,16 +12,25 @@
       "import": "./dist/kicad_schematic_viewer.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "dev": "vite demo",
+    "dev": "vite demo --config vite.config.ts",
     "build": "tsc --emitDeclarationOnly && vite build",
-    "preview": "vite preview demo",
+    "preview": "vite preview demo --config vite.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": ["kicad", "schematic", "eda", "web-component", "netlist", "svg"],
+  "keywords": [
+    "kicad",
+    "schematic",
+    "eda",
+    "web-component",
+    "netlist",
+    "svg"
+  ],
   "license": "MIT",
   "devDependencies": {
     "typescript": "^5.6.0",
