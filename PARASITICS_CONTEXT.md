@@ -106,10 +106,11 @@ Current status:
   reference in scratch — reference copy at
   ~/git/papers/kicad9-microstrip-reference.cpp, never our code); physical-limit
   property tests (εeff bounds/monotonicity, parallel-plate limit, dispersion
-  f→0/f→∞, RLGC identities); folklore 50 Ω FR4 = 50.17 Ω, εeff 3.42. NOTE:
-  paper eq (11) G is OCR-illegible in our scan — transcribed in its canonical
-  form (π²/12·(εr−1)/εeff·√(2πZ0/η0)) and pinned by limit tests; KiCad uses
-  Kirschning–Jansen instead so no numeric cross for dispersion yet.
+  f→0/f→∞, RLGC identities); folklore 50 Ω FR4 = 50.17 Ω, εeff 3.42. Eq (11)
+  G = π²/12·(εr−1)/εeff(0)·√(2πZ0/η0) — text-extraction lost it but the user
+  read it straight off the paper figure and CONFIRMED the transcribed form.
+  (KiCad uses Kirschning–Jansen dispersion, so there's still no independent
+  NUMERIC cross for (10)–(12) — only the limit tests.)
 - **M5 next**: Wheeler 1977 stripline, loss models (HJ eqs 33–38 + roughness),
   net-segment classifier (microstrip vs stripline from stackup), per-segment
   RLGC output contract. Then app-level integration, plane-net fast preview.

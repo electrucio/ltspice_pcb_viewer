@@ -101,7 +101,8 @@ export function microstrip(input: MicrostripInput): MicrostripResult {
   const f = input.frequencyHz ?? 0;
   if (f > 0 && er > 1) {
     const fp = z0Stat / (2 * MU0 * h); // ≈ first TE-mode cutoff (after (10))
-    const G = ((Math.PI * Math.PI) / 12) * ((er - 1) / eeStat) * Math.sqrt((2 * Math.PI * z0Stat) / ETA0); // (11)
+    // (11) — confirmed against the paper figure: G = π²/12 · (εr−1)/εeff(0) · √(2πZ0/η0)
+    const G = ((Math.PI * Math.PI) / 12) * ((er - 1) / eeStat) * Math.sqrt((2 * Math.PI * z0Stat) / ETA0);
     epsEff = er - (er - eeStat) / (1 + G * Math.pow(f / fp, 2)); // (10)
     z0 = z0Stat * Math.sqrt(eeStat / epsEff) * ((epsEff - 1) / (eeStat - 1)); // (12)
   }
