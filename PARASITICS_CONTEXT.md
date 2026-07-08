@@ -226,6 +226,12 @@ PARASITICS_CONTEXT.md                 this file
 modules/kicad_pcb_viewer/CONTEXT.md   parser/board-model contract deep-dive
 modules/analytic_models/README.md     M0 oracle: slices, sources, verification
 ~/git/pcb-toolkit                     sibling clone: Saturn reimplementation (fixture mint)
+~/git/KiPIDA                          sibling clone: KiCad DC-PI plugin (AGPL — ideas/cross-check only)
+~/git/atlc                            atlc 4.6.1 source (M5 numerical oracle; SF .tar.gz is corrupt, use .tar.bz2)
+~/git/kicad                           sparse clone: pcb_calculator/transline (HJ formulas) + demos (4–12 layer boards)
+~/git/FastCap2 FasterCap FastHenry2   ediloren mirrors (M6/M7 golden-reference solvers)
+~/git/papers                          wcalc + Qucs transline docs (open HJ equation sources);
+                                      HJ 1980 & Wheeler 1977 originals are IEEE-paywalled — user to fetch
 modules/pcb_mesh/README.md            pipeline, strategies, invariants, numbers
 modules/geometry_core/README.md       kernel API, build, measurements
 modules/pcb_mesh/scripts/             profile-mesh.ts, bench-ruppert*.ts (dev tools)

@@ -28,7 +28,9 @@ export type FpGraphic =
   | { kind: "line"; layer: string; a: Point; b: Point; width: number }
   | { kind: "circle"; layer: string; center: Point; radius: number; width: number }
   | { kind: "arc"; layer: string; start: Point; mid: Point; end: Point; width: number }
-  | { kind: "rect"; layer: string; a: Point; b: Point; width: number; fill: boolean };
+  | { kind: "rect"; layer: string; a: Point; b: Point; width: number; fill: boolean }
+  /** fp_poly — on copper layers this is REAL copper (KiCad's microwave footprints) */
+  | { kind: "poly"; layer: string; pts: Point[]; width: number; fill: boolean };
 
 export interface Footprint {
   ref: string; // reference designator as drawn on the board (e.g. "Q3" or "Q3*")
@@ -183,6 +185,8 @@ function readFpGraphic(node: SNode, fpos: Point, fangle: number, sign: number): 
     }
     case "fp_arc":
       return { kind: "arc", layer, start: W(xy(child(node, "start"))), mid: W(xy(child(node, "mid"))), end: W(xy(child(node, "end"))), width: w };
+    case "fp_poly":
+      return { kind: "poly", layer, pts: pts(node).map(W), width: w, fill: isFilled(node) };
     default:
       return null;
   }

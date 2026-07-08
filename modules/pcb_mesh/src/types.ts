@@ -52,6 +52,8 @@ export interface SanitationReport {
   degenerateTriangles: number;
   /** outline vertices removed by Douglas–Peucker simplification (`simplifyTolerance`) */
   simplifiedVertices: number;
+  /** footprint copper graphics whose net could not be inferred from the pads */
+  orphanCopperGraphics: number;
   /** boolean ops that needed the jitter fallback (polygon-clipping robustness) */
   booleanFallbacks: number;
   /** primitives dropped because no boolean fallback succeeded — copper may be missing */
@@ -164,6 +166,7 @@ export function emptySanitationReport(): SanitationReport {
     emptyRegions: 0,
     degenerateTriangles: 0,
     simplifiedVertices: 0,
+    orphanCopperGraphics: 0,
     booleanFallbacks: 0,
     droppedPrimitives: 0,
   };

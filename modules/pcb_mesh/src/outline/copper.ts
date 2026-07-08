@@ -17,7 +17,7 @@
  */
 
 import pc from "polygon-clipping";
-import type { Pcb, Pad } from "../../../kicad_pcb_viewer/src/parser/pcb.js";
+import type { BoardGraphic, FpGraphic, Pcb, Pad } from "../../../kicad_pcb_viewer/src/parser/pcb.js";
 import type { MultiPolygon, Polygon, Ring, SanitationReport } from "../types.js";
 import { emptySanitationReport, multiPolygonArea, openRing, resolveOptions, type CopperRegion, type MeshOptions } from "../types.js";
 import { circleOutline, padArcRadius, padDrillOutline, padOutline, segmentsForRadius, stadiumOutline, trackOutline, viaDrillOutline, viaOutline } from "./primitives.js";
@@ -83,9 +83,12 @@ export interface ExtractResult {
   report: SanitationReport;
 }
 
-/** Does a pad put copper on `layer`? (`*.Cu` = every copper layer.) */
+/** Does a pad put copper on `layer`? (`*.Cu` = every copper layer,
+ *  `F&B.Cu` = both outer layers — seen on real boards, e.g. KiCad's cm5_minima.) */
 export function padOnLayer(p: Pad, layer: string): boolean {
-  return p.layers.some((l) => l === layer || l === "*.Cu");
+  return p.layers.some(
+    (l) => l === layer || l === "*.Cu" || (l === "F&B.Cu" && (layer === "F.Cu" || layer === "B.Cu")),
+  );
 }
 
 /** Copper layers with content, in KiCad stacking order (F.Cu first, B.Cu last). */
@@ -95,7 +98,10 @@ export function copperLayers(pcb: Pcb): string[] {
   for (const z of pcb.zones) if (z.layer.endsWith(".Cu")) seen.add(z.layer);
   for (const f of pcb.footprints)
     for (const p of f.pads)
-      for (const l of p.layers) if (l.endsWith(".Cu") && !l.startsWith("*")) seen.add(l);
+      for (const l of p.layers) {
+        if (l === "F&B.Cu") { seen.add("F.Cu"); seen.add("B.Cu"); continue; } // both outers, not a layer
+        if (l.endsWith(".Cu") && !l.startsWith("*")) seen.add(l);
+      }
   const order = (l: string) => (l === "F.Cu" ? 0 : l === "B.Cu" ? 2 : 1);
   return [...seen].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
 }
@@ -124,14 +130,25 @@ export function extractCopper(pcb: Pcb, options?: MeshOptions): ExtractResult {
     ).filter((poly) => poly.length > 0 && poly[0]!.length >= 3);
 
   for (const layer of layers) {
-    // 1) collect primitive outlines per net
+    // 1) collect primitive outlines per net (tracking each net's bbox as we go)
     const byNet = new Map<string, Polygon[]>();
+    const netBBox = new Map<string, { minX: number; minY: number; maxX: number; maxY: number }>();
     const add = (net: string, ring: Ring) => {
       if (netFilter && !netFilter.has(net)) return;
       if (ring.length < 3) return;
       let list = byNet.get(net);
       if (!list) byNet.set(net, (list = []));
-      list.push([ring.map(([x, y]) => [snap(x), snap(y)] as [number, number])]);
+      let bb = netBBox.get(net);
+      if (!bb) netBBox.set(net, (bb = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity }));
+      const snapped: Ring = ring.map(([x, y]) => {
+        const sx = snap(x), sy = snap(y);
+        if (sx < bb.minX) bb.minX = sx;
+        if (sy < bb.minY) bb.minY = sy;
+        if (sx > bb.maxX) bb.maxX = sx;
+        if (sy > bb.maxY) bb.maxY = sy;
+        return [sx, sy];
+      });
+      list.push([snapped]);
     };
 
     for (const t of pcb.tracks)
@@ -150,49 +167,77 @@ export function extractCopper(pcb: Pcb, options?: MeshOptions): ExtractResult {
     if (o.includeZones)
       for (const z of pcb.zones)
         if (z.layer === layer) add(z.net, z.pts.map((p) => [p.x, p.y] as [number, number]));
-    // net-assigned copper graphics (KiCad 9/10 gr_poly/rect/circle/line on copper):
-    // real copper — fill plus the stroke outline (drawn as stadiums along each edge,
-    // which is what actually makes contact with neighbouring copper)
-    for (const g of pcb.graphics) {
-      if (g.layer !== layer || g.net === undefined) continue;
+    // copper graphics: fill plus the stroke outline (drawn as stadiums along each
+    // edge, which is what actually makes contact with neighbouring copper)
+    const addGraphic = (g: BoardGraphic | FpGraphic, net: string) => {
       const stroke = (a: { x: number; y: number }, b: { x: number; y: number }, width: number) => {
-        if (width > 0) add(g.net!, stadiumOutline(a, b, width, segs(width / 2)));
+        if (width > 0) add(net, stadiumOutline(a, b, width, segs(width / 2)));
       };
       if (g.kind === "poly") {
         const ring = g.pts.map((p) => [p.x, p.y] as [number, number]);
-        if (g.fill) add(g.net, ring);
+        if (g.fill) add(net, ring);
         for (let i = 0; i < g.pts.length; i++) stroke(g.pts[i]!, g.pts[(i + 1) % g.pts.length]!, g.width);
       } else if (g.kind === "rect") {
         const c1 = g.a, c2 = { x: g.b.x, y: g.a.y }, c3 = g.b, c4 = { x: g.a.x, y: g.b.y };
-        if (g.fill) add(g.net, [[c1.x, c1.y], [c2.x, c2.y], [c3.x, c3.y], [c4.x, c4.y]]);
+        if (g.fill) add(net, [[c1.x, c1.y], [c2.x, c2.y], [c3.x, c3.y], [c4.x, c4.y]]);
         for (const [a, b] of [[c1, c2], [c2, c3], [c3, c4], [c4, c1]] as const) stroke(a, b, g.width);
       } else if (g.kind === "circle") {
-        add(g.net, circleOutline(g.center.x, g.center.y, g.radius + g.width / 2, segs(g.radius + g.width / 2)));
+        add(net, circleOutline(g.center.x, g.center.y, g.radius + g.width / 2, segs(g.radius + g.width / 2)));
       } else if (g.kind === "line") {
         stroke(g.a, g.b, g.width);
       }
       // arcs: parser keeps 3-point arcs; straightened like arc tracks (known gap)
       else if (g.kind === "arc") stroke(g.start, g.end, g.width);
+    };
+    // board-level: only when net-assigned (KiCad 9/10) — netless gr_* is decoration
+    for (const g of pcb.graphics) {
+      if (g.layer === layer && g.net !== undefined) addGraphic(g, g.net);
+    }
+    // footprint-level (fp_poly & co. — e.g. KiCad's microwave footprints): always
+    // copper; the file gives them no net, so inherit the footprint's unique pad net
+    // when unambiguous, else "" and count it (never silent)
+    for (const f of pcb.footprints) {
+      const gfx = f.graphics.filter((g) => g.layer === layer);
+      if (!gfx.length) continue;
+      const padNets = [...new Set(f.pads.map((p) => p.net).filter(Boolean))];
+      const net = padNets.length === 1 ? padNets[0]! : "";
+      if (padNets.length !== 1) report.orphanCopperGraphics += gfx.length;
+      for (const g of gfx) addGraphic(g, net);
     }
 
-    // 2) all drills on this layer (net-independent: a hole is a hole)
-    const drills: Polygon[] = [];
+    // 2) all drills on this layer (net-independent: a hole is a hole), with bboxes so
+    //    each net only pays for the drills it can actually touch — differencing every
+    //    net against every drill was 99% of extraction time on dense boards
+    interface DrillEntry { poly: Polygon; minX: number; minY: number; maxX: number; maxY: number }
+    const drills: DrillEntry[] = [];
     const snapRing = (r: Ring): Ring => r.map(([x, y]) => [snap(x), snap(y)] as [number, number]);
+    const addDrill = (ring: Ring) => {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const [x, y] of ring) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+      drills.push({ poly: [ring], minX, minY, maxX, maxY });
+    };
     if (o.subtractDrills) {
       for (const v of pcb.vias)
-        if (v.layers.length === 0 || v.layers.includes(layer)) drills.push([snapRing(viaDrillOutline(v, segs(v.drill / 2)))]);
+        if (v.layers.length === 0 || v.layers.includes(layer)) addDrill(snapRing(viaDrillOutline(v, segs(v.drill / 2))));
       for (const f of pcb.footprints)
         for (const p of f.pads) {
           if (!p.thruHole) continue;
           const d = padDrillOutline(p, segs(Math.min(p.drill?.w ?? 0, p.drill?.h ?? 0) / 2));
-          if (d) drills.push([snapRing(d)]);
+          if (d) addDrill(snapRing(d));
         }
     }
 
-    // 3) union per net, minus drills (robust: snap + incremental fallback)
+    // 3) union per net, minus the drills overlapping its bbox
     for (const [net, polys] of byNet) {
       let merged = robustUnion(polys, report);
-      if (drills.length) merged = robustDifference(merged, drills, report);
+      const bb = netBBox.get(net)!;
+      const near = drills.filter((d) => d.minX <= bb.maxX && bb.minX <= d.maxX && d.minY <= bb.maxY && bb.minY <= d.maxY);
+      if (near.length) merged = robustDifference(merged, near.map((d) => d.poly), report);
       let polygons = normalize(merged);
       if (o.simplifyTolerance > 0 && polygons.length) {
         const s = simplifyMultiPolygon(polygons, o.simplifyTolerance);

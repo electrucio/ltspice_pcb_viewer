@@ -158,6 +158,16 @@ export function renderPcb(pcb: Pcb): RenderResult {
     if (g.net) node.dataset.net = g.net;
     into(g.layer).appendChild(node);
   }
+  // footprint copper graphics (fp_poly & co. on copper — e.g. microwave footprints)
+  for (const f of pcb.footprints) {
+    for (const g of f.graphics) {
+      if (!g.layer.endsWith(".Cu") || !groups.has(g.layer)) continue;
+      const node = strokeGraphic(g, `pcb-copper-gfx layer-${layerId(g.layer)}`);
+      if (!node) continue;
+      if (f.ref) node.dataset.ref = f.ref;
+      into(g.layer).appendChild(node);
+    }
+  }
 
   // pads (through-hole pads live on the shared "pads" layer)
   for (const f of pcb.footprints) {

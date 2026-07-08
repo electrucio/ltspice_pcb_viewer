@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractCopperRegions } from "../src/outline/copper.js";
+import { extractCopper, extractCopperRegions } from "../src/outline/copper.js";
 import { makeFootprint, makePad, makePcb } from "./helpers.js";
 
 const SEGS = 64;
@@ -111,5 +111,26 @@ describe("net-assigned copper graphics (KiCad 9/10)", () => {
     const regions = extractCopperRegions(pcb, { arcSegments: SEGS });
     expect(regions).toHaveLength(1);
     expect(regions[0]!.area).toBeLessThan(5); // just the track
+  });
+});
+
+describe("footprint copper graphics (fp_poly — microwave-style footprints)", () => {
+  it("meshes fp_poly as copper with the net inferred from the footprint's pads", () => {
+    const fp = makeFootprint([makePad({ shape: "rect", size: { w: 1, h: 1 }, pos: { x: 0, y: 0 }, net: "RF" })]);
+    fp.graphics.push({ kind: "poly", layer: "F.Cu", width: 0.2, fill: true, pts: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 3 }, { x: 0, y: 3 }] });
+    const pcb = makePcb({ footprints: [fp] });
+    const regions = extractCopperRegions(pcb, { layers: ["F.Cu"], arcSegments: SEGS });
+    expect(regions).toHaveLength(1);
+    expect(regions[0]!.net).toBe("RF");
+    expect(regions[0]!.area).toBeGreaterThan(15); // 5×3 fill + stroke + pad
+  });
+
+  it("counts net-orphan graphics when pads give no unique net", () => {
+    const fp = makeFootprint([makePad({ net: "" })]);
+    fp.graphics.push({ kind: "poly", layer: "F.Cu", width: 0.2, fill: true, pts: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 1, y: 2 }] });
+    const pcb = makePcb({ footprints: [fp] });
+    const { regions, report } = extractCopper(pcb, { layers: ["F.Cu"] });
+    expect(report.orphanCopperGraphics).toBe(1);
+    expect(regions.some((r) => r.net === "")).toBe(true);
   });
 });

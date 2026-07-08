@@ -5,6 +5,7 @@
  * the viewer draws copper, that unions merged what touches, and that drills are holes.
  */
 import defaultBoard from "../../kicad_pcb_viewer/demo/poweramp.kicad_pcb?raw";
+import { wheelZoomFactor } from "../../kicad_pcb_viewer/src/interaction/controller.js";
 import { parsePcb, type Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
 import { buildBoardMesh } from "../src/build.js";
 import { analyzeRegion } from "../src/verify.js";
@@ -56,11 +57,18 @@ function trianglePaths(r: RegionMesh): string[] {
   return chunks;
 }
 
+const layerOpacity = new Map<string, number>(); // 0..1, per copper layer (all-layers mode)
+
+function activeLayers(): string[] {
+  if (layerSel.value !== "*") return [layerSel.value];
+  return [...layerSel.options].map((o) => o.value).filter((v) => v !== "*");
+}
+
 function rebuildMesh(): void {
   const maxEdge = maxEdgeSel.value ? Number(maxEdgeSel.value) : undefined;
   const refinement = refineSel.value as Refinement;
   const t0 = performance.now();
-  mesh = buildBoardMesh(pcb, { layers: [layerSel.value], maxEdgeLength: maxEdge, refinement, arcSegments: 24 });
+  mesh = buildBoardMesh(pcb, { layers: activeLayers(), maxEdgeLength: maxEdge, refinement, arcSegments: 24 });
   const ms = performance.now() - t0;
   const regions = mesh.regions;
   const tris = regions.reduce((s, r) => s + r.quality.triangleCount, 0);
@@ -88,6 +96,36 @@ function rebuildMesh(): void {
   render();
   renderNetList();
   renderInfo();
+  renderOpacitySliders();
+}
+
+function renderOpacitySliders(): void {
+  const box = document.getElementById("opacities")!;
+  box.replaceChildren();
+  const layers = activeLayers();
+  if (layers.length < 2) { box.hidden = true; return; }
+  box.hidden = false;
+  layers.forEach((layer, i) => {
+    if (!layerOpacity.has(layer)) layerOpacity.set(layer, i === 0 ? 0.9 : Math.max(0.25, 0.7 - 0.15 * (i - 1)));
+    const row = document.createElement("label");
+    row.style.display = "flex";
+    row.style.gap = "6px";
+    const name = document.createElement("span");
+    name.textContent = layer;
+    name.style.minWidth = "52px";
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "0";
+    slider.max = "100";
+    slider.value = String(Math.round(layerOpacity.get(layer)! * 100));
+    slider.addEventListener("input", () => {
+      layerOpacity.set(layer, Number(slider.value) / 100);
+      const g = svg.querySelector<SVGGElement>(`g[data-meshlayer="${layer}"]`);
+      if (g) g.setAttribute("opacity", String(layerOpacity.get(layer)));
+    });
+    row.append(name, slider);
+    box.appendChild(row);
+  });
 }
 
 const fmt = (v: number, digits = 4): string => v.toFixed(digits);
@@ -123,10 +161,71 @@ function renderInfo(): void {
     `slivers ${r.meshQuality.sliverCount} · worst aspect ${r.meshQuality.worstAspect > 1e6 ? "∞" : r.meshQuality.worstAspect.toFixed(0)}`;
 }
 
+// ---- pan / zoom (viewBox-based, wheel math shared with the viewer module) ----
+const vb = { x: 0, y: 0, w: 100, h: 100 };
+let vbInitialized = false;
+
+function applyViewBox(): void {
+  svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+}
+
+function fitViewBox(): void {
+  const b = pcb.bbox, pad = 2;
+  vb.x = b.minX - pad;
+  vb.y = b.minY - pad;
+  vb.w = b.maxX - b.minX + 2 * pad;
+  vb.h = b.maxY - b.minY + 2 * pad;
+  vbInitialized = true;
+  applyViewBox();
+}
+
+svg.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const rect = svg.getBoundingClientRect();
+  const px = vb.x + ((e.clientX - rect.left) / rect.width) * vb.w;
+  const py = vb.y + ((e.clientY - rect.top) / rect.height) * vb.h;
+  const k = wheelZoomFactor(e.deltaY);
+  vb.x = px - (px - vb.x) * k;
+  vb.y = py - (py - vb.y) * k;
+  vb.w *= k;
+  vb.h *= k;
+  applyViewBox();
+}, { passive: false });
+
+// NOTE: no setPointerCapture here — capturing retargets the resulting click to the
+// svg element itself, which silently kills net/pad click selection
+let panning = false, panMoved = false, lastX = 0, lastY = 0;
+svg.addEventListener("pointerdown", (e) => {
+  panning = true;
+  panMoved = false;
+  lastX = e.clientX;
+  lastY = e.clientY;
+});
+window.addEventListener("pointermove", (e) => {
+  if (!panning) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  if (Math.abs(dx) + Math.abs(dy) > 3) panMoved = true;
+  if (!panMoved) return;
+  const rect = svg.getBoundingClientRect();
+  vb.x -= (dx / rect.width) * vb.w;
+  vb.y -= (dy / rect.height) * vb.h;
+  lastX = e.clientX;
+  lastY = e.clientY;
+  applyViewBox();
+});
+window.addEventListener("pointerup", () => {
+  panning = false;
+});
+// a drag must not count as a net/pad click
+svg.addEventListener("click", (e) => {
+  if (panMoved) e.stopPropagation();
+}, true);
+svg.addEventListener("dblclick", () => fitViewBox());
+
 function render(): void {
   svg.replaceChildren();
-  const b = pcb.bbox, pad = 2;
-  svg.setAttribute("viewBox", `${b.minX - pad} ${b.minY - pad} ${b.maxX - b.minX + 2 * pad} ${b.maxY - b.minY + 2 * pad}`);
+  if (!vbInitialized) fitViewBox();
+  else applyViewBox();
   // board outline for context
   for (const g of pcb.graphics) {
     if (g.layer !== "Edge.Cuts" || g.kind !== "line") continue;
@@ -135,6 +234,15 @@ function render(): void {
     l.setAttribute("x2", String(g.b.x)); l.setAttribute("y2", String(g.b.y));
     l.setAttribute("class", "outline");
     svg.appendChild(l);
+  }
+  // per-layer groups so the opacity sliders act on whole layers (B.Cu at the bottom)
+  const layerGroups = new Map<string, SVGGElement>();
+  for (const layer of [...activeLayers()].reverse()) {
+    const lg = document.createElementNS(SVGNS, "g");
+    lg.dataset.meshlayer = layer;
+    lg.setAttribute("opacity", String(layerOpacity.get(layer) ?? 1));
+    layerGroups.set(layer, lg);
+    svg.appendChild(lg);
   }
   for (const r of mesh.regions) {
     const g = document.createElementNS(SVGNS, "g");
@@ -159,7 +267,7 @@ function render(): void {
     });
     g.addEventListener("mouseleave", () => (hoverEl.hidden = true));
     g.addEventListener("click", () => selectNet(selectedNet === r.net ? null : r.net));
-    svg.appendChild(g);
+    (layerGroups.get(r.layer) ?? svg).appendChild(g);
   }
 }
 
@@ -339,9 +447,11 @@ function loadBoard(text: string): void {
   try {
     pcb = parsePcb(text);
     selectedNet = null;
-    const layers = [...new Set([...pcb.tracks.map((t) => t.layer), ...pcb.zones.map((z) => z.layer)])]
-      .filter((l) => l.endsWith(".Cu")).sort();
-    layerSel.replaceChildren(...layers.map((l) => new Option(l, l)));
+    vbInitialized = false; // new board → fit view
+    const layers = [...new Set([...pcb.tracks.map((t) => t.layer), ...pcb.zones.map((z) => z.layer), ...pcb.footprints.flatMap((f) => f.pads.flatMap((p) => p.layers)), ...pcb.graphics.map((g) => g.layer)])]
+      .filter((l) => l.endsWith(".Cu") && !l.startsWith("*") && l !== "F&B.Cu")
+      .sort((a, b) => (a === "F.Cu" ? -1 : b === "F.Cu" ? 1 : a === "B.Cu" ? 1 : b === "B.Cu" ? -1 : a.localeCompare(b)));
+    layerSel.replaceChildren(...layers.map((l) => new Option(l, l)), new Option("All layers", "*"));
     rebuildMesh();
   } catch (e) {
     // never fail silently — the board didn't load, say so where the user looks
