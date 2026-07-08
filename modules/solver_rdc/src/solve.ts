@@ -3,8 +3,9 @@
  *
  * Model: each copper layer of the net is a 2D sheet-conductance FEM domain (mesh from
  * pcb_mesh's buildTerminalMesh — pads/vias are equipotential terminal holes). Layers
- * couple through supernodes: every terminal id that appears on several layers (THT
- * pads, vias) has its vertex sets SHORTED across layers. Via barrel resistance
+ * couple through supernodes: every terminal MEMBER id that appears on several layers
+ * (THT pads, vias — including a via-in-pad merged into its pad's terminal on one
+ * layer) has its vertex sets SHORTED across layers. Via barrel resistance
  * (~1 mΩ, see analytic_models) is neglected in v1 — flagged as an upgrade, not hidden.
  *
  * Every result carries the achieved CG residual; the caller must not trust a
@@ -63,7 +64,7 @@ interface LayerBlock {
   vertices: Float64Array;
   triangles: Uint32Array;
   offset: number;
-  terminals: Array<{ id: string; refs: string[]; vertexIndices: number[] }>;
+  terminals: Array<{ id: string; refs: string[]; members: string[]; vertexIndices: number[] }>;
 }
 
 /** Does `query` name this terminal? Accepts the merged id or any member ref. */
@@ -102,20 +103,26 @@ export function solveNetResistance(
   const total = offset;
   if (!blocks.length) throw new Error(`net "${net}" has no copper on ${layers.join(", ")}`);
 
-  // 2) supernodes: terminal vertices merge within a layer; same id merges across layers
+  // 2) supernodes: terminal vertices merge within a layer; the same MEMBER id merges
+  //    across layers. Never match by the merged display id: a via-in-pad terminal is
+  //    "PAD+via@x,y" on the pad's layer but plain "via@x,y" everywhere else.
   const uf = new UnionFind(total);
   const rootByTerminalId = new Map<string, number>();
+  const rootByMemberId = new Map<string, number>();
   const terminalInfo = new Map<string, { refs: string[] }>();
   for (const b of blocks) {
     for (const t of b.terminals) {
       if (!t.vertexIndices.length) continue;
       const first = b.offset + t.vertexIndices[0]!;
       for (const vi of t.vertexIndices) uf.union(b.offset + vi, first);
-      const existing = rootByTerminalId.get(t.id);
-      if (existing !== undefined) uf.union(first, existing);
-      else rootByTerminalId.set(t.id, first);
+      for (const m of t.members) {
+        const existing = rootByMemberId.get(m);
+        if (existing !== undefined) uf.union(first, existing);
+        else rootByMemberId.set(m, first);
+      }
+      if (!rootByTerminalId.has(t.id)) rootByTerminalId.set(t.id, first);
       const info = terminalInfo.get(t.id) ?? { refs: [] };
-      info.refs.push(...t.refs);
+      info.refs.push(...t.refs, ...t.members);
       terminalInfo.set(t.id, info);
     }
   }

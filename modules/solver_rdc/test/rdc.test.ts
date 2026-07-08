@@ -142,6 +142,30 @@ describe("real board (poweramp)", () => {
     expect(r.resistance).toBeLessThan(0.1);
     expect(r.relResidual).toBeLessThan(1e-10);
   });
+
+  it("via-in-pad: a B.Cu pad stacked on a through via reaches F.Cu copper (jetson J18.D21 case)", () => {
+    // On B.Cu the via merges into the pad terminal ("A.1+via@…"); on F.Cu it is plain
+    // "via@…". Cross-layer stitching must match by MEMBER id — matching the merged
+    // display id reported these terminals "not connected".
+    const viaInPad: Pcb = {
+      footprints: [
+        fp([{ ...pad("A", 1, 0.5, 0.8, 0.8), layers: ["B.Cu"] }]),
+        fp([{ ...pad("B", 9, 0.5, 0.8, 0.8) }]),
+      ],
+      tracks: [{ start: { x: 1, y: 0.5 }, end: { x: 9, y: 0.5 }, width: 0.5, layer: "F.Cu", net: "N1" }],
+      vias: [{ pos: { x: 1, y: 0.5 }, size: 0.45, drill: 0.2, layers: ["F.Cu", "B.Cu"], net: "N1" }],
+      zones: [], graphics: [], texts: [], nets: ["N1"],
+      layers: ["F.Cu", "B.Cu"], copperStack: ["F.Cu", "B.Cu"],
+      bbox: { minX: 0, minY: 0, maxX: 10, maxY: 1 },
+    };
+    const r = solveNetResistance(viaInPad, "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: 0.2 });
+    // ~8 mm of 0.5 mm F.Cu trace ≈ 16 squares, minus the terminal extents — loose band
+    expect(r.resistance).toBeGreaterThan(10 * RS);
+    expect(r.resistance).toBeLessThan(20 * RS);
+    expect(r.relResidual).toBeLessThan(1e-10);
+    expect(r.conservationError).toBeLessThan(1e-8);
+    expect(r.layers).toEqual(["F.Cu", "B.Cu"]);
+  });
 });
 
 describe("M0 estimate vs FEM (double-check role)", () => {

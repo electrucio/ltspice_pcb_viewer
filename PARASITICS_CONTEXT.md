@@ -225,7 +225,13 @@ demo falls back to cdt2d when missing). Toolchain via `brew install rustup wasm-
   no net — inferred from the footprint's unique pad net; `gr_text` on copper is real
   copper we render but cannot mesh yet (counted as `copperTextIgnored`);
   via TERMINALS use the annulus midline circle (r = (drill+size)/4), never an inset
-  of the outer ring (vias are wider than their traces).
+  of the outer ring (vias are wider than their traces);
+  **via-in-pad is common on dense boards** (jetson: through via stacked at the center
+  of an SMD pad, J18.D21) — the via merges into the pad's terminal on that layer, so
+  cross-layer supernode stitching must union by terminal **member ids**
+  (`Terminal.members`), never by the merged display id ("PAD+via@x,y" ≠ "via@x,y";
+  matching display ids reported net-859 J18.D21↔R100.2 "not connected"; now solves
+  1.055 Ω through all 10 layers).
 
 ## 7. Where things live
 

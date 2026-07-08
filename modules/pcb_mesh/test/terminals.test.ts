@@ -84,6 +84,30 @@ describe("terminal meshes", () => {
     expect(padTerms[0]!.refs.sort()).toEqual(["A.1", "B.1"]);
   });
 
+  it("via-in-pad: merges the via into the pad terminal but keeps both member ids", () => {
+    // SMD pad with a through via stacked at its center (jetson-style). The via's
+    // midline ring sits strictly INSIDE the pad's inset ring (no edge crossing) —
+    // they must still merge, and the members must retain the plain via id so the
+    // solver can stitch this terminal to the same via on other layers.
+    const pcb = makePcb({
+      footprints: [
+        makeFootprint([
+          makePad({ ref: "J1", number: "D21", shape: "circle", size: { w: 0.8, h: 0.8 }, pos: { x: 0, y: 0 }, layers: ["B.Cu"], net: "N1" }),
+        ]),
+      ],
+      vias: [{ pos: { x: 0, y: 0 }, size: 0.45, drill: 0.2, layers: ["F.Cu", "B.Cu"], net: "N1" }],
+      tracks: [{ start: { x: 0, y: 0 }, end: { x: 4, y: 0 }, width: 0.5, layer: "B.Cu", net: "N1" }],
+    });
+    const tm = buildTerminalMesh(pcb, "B.Cu", "N1", { maxEdgeLength: 0.3, refinement: "ruppert" })!;
+    expect(tm.skipped).toEqual([]);
+    expect(tm.terminals).toHaveLength(1);
+    const t = tm.terminals[0]!;
+    expect(t.members.sort()).toEqual(["J1.D21", "via@0,0"]);
+    expect(t.refs).toEqual(["J1.D21"]);
+    // one merged hole (the via ring and drill are swallowed by the pad ring)
+    expect(tm.mesh.holes).toBe(1);
+  });
+
   it("creates via terminals on a real board net", () => {
     const text = readFileSync(
       fileURLToPath(new URL("../../kicad_pcb_viewer/test/fixtures/poweramp.kicad_pcb", import.meta.url)),

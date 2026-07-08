@@ -29,6 +29,12 @@ export interface Terminal {
   kind: "pad" | "via";
   /** pad refs covered ("REF.pad"), empty for vias */
   refs: string[];
+  /**
+   * constituent terminal ids (pads AND vias). Cross-layer identity must use these,
+   * never `id`: a via-in-pad merges into "PAD+via@x,y" on the pad's layer while the
+   * same via is plain "via@x,y" everywhere else.
+   */
+  members: string[];
   /** indices into the RegionMesh vertex buffer that lie on the terminal ring(s) */
   vertexIndices: number[];
 }
@@ -148,6 +154,7 @@ interface TerminalSpec {
   id: string;
   kind: "pad" | "via";
   refs: string[];
+  members: string[];
   rings: Ring[];
 }
 
@@ -155,8 +162,13 @@ interface TerminalSpec {
 function mergeOverlapping(specs: TerminalSpec[]): TerminalSpec[] {
   const out: TerminalSpec[] = [];
   for (const spec of specs) {
-    const hit = out.find((o) => o.rings.some((r) => spec.rings.some((s) => ringsCross(r, s) || (ringsBBoxOverlap(r, s) && pointInRing(s[0]![0], s[0]![1], r)))));
-    if (!hit) { out.push({ ...spec, rings: [...spec.rings], refs: [...spec.refs] }); continue; }
+    // overlap = edges cross OR one ring contains the other (checked both ways —
+    // a via-in-pad ring sits strictly inside the pad ring with no edge crossing)
+    const hit = out.find((o) => o.rings.some((r) => spec.rings.some((s) =>
+      ringsCross(r, s) ||
+      (ringsBBoxOverlap(r, s) && (pointInRing(s[0]![0], s[0]![1], r) || pointInRing(r[0]![0], r[0]![1], s))),
+    )));
+    if (!hit) { out.push({ ...spec, rings: [...spec.rings], refs: [...spec.refs], members: [...spec.members] }); continue; }
     const union = pc.union(
       hit.rings.map((r) => [r]) as Parameters<typeof pc.union>[0],
       ...(spec.rings.map((r) => [r]) as Array<Parameters<typeof pc.union>[0]>),
@@ -164,6 +176,7 @@ function mergeOverlapping(specs: TerminalSpec[]): TerminalSpec[] {
     hit.rings = union.map((poly) => poly[0] as Ring); // outer rings only — terminals have no holes
     hit.id = `${hit.id}+${spec.id}`;
     hit.refs.push(...spec.refs);
+    hit.members.push(...spec.members);
   }
   return out;
 }
@@ -186,7 +199,8 @@ export function buildTerminalMesh(pcb: Pcb, layer: string, net: string, options?
     for (const p of f.pads) {
       if (!padOnLayer(p, layer) || p.net !== net) continue;
       const ring = insetRing(padOutline(p, segs(padArcRadius(p))), inset);
-      if (ring) specs.push({ id: `${p.ref}.${p.number}`, kind: "pad", refs: [`${p.ref}.${p.number}`], rings: [ring] });
+      const id = `${p.ref}.${p.number}`;
+      if (ring) specs.push({ id, kind: "pad", refs: [id], members: [id], rings: [ring] });
     }
   if (options?.viaTerminals ?? true) {
     const copperOrder = copperOrderOf(pcb);
@@ -199,7 +213,8 @@ export function buildTerminalMesh(pcb: Pcb, layer: string, net: string, options?
       const rMid = (v.drill / 2 + v.size / 2) / 2;
       if (rMid <= v.drill / 2) continue; // degenerate barrel
       const ring = circleOutline(v.pos.x, v.pos.y, rMid, segs(rMid));
-      specs.push({ id: `via@${v.pos.x},${v.pos.y}`, kind: "via", refs: [], rings: [ring] });
+      const id = `via@${v.pos.x},${v.pos.y}`;
+      specs.push({ id, kind: "via", refs: [], members: [id], rings: [ring] });
     }
   }
 
@@ -242,7 +257,7 @@ export function buildTerminalMesh(pcb: Pcb, layer: string, net: string, options?
       const x = mesh.vertices[2 * i]!, y = mesh.vertices[2 * i + 1]!;
       if (rings.some((r) => distToRing(x, y, r) <= TOL)) vertexIndices.push(i);
     }
-    return { id: spec.id, kind: spec.kind, refs: spec.refs, vertexIndices };
+    return { id: spec.id, kind: spec.kind, refs: spec.refs, members: spec.members, vertexIndices };
   });
 
   return { mesh, terminals: terminals.filter((t) => t.vertexIndices.length > 0), skipped };
