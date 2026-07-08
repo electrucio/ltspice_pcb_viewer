@@ -32,6 +32,14 @@ svg.pcb-panning { cursor: grabbing; }
 .pcb-zone { stroke: none; opacity: var(--pcb-zone-opacity); pointer-events: fill; }
 .pcb-zone.layer-F_Cu { fill: var(--pcb-fcu); }
 .pcb-zone.layer-B_Cu { fill: var(--pcb-bcu); }
+/* net-assigned copper graphics: solid copper stroked at their width; "filled"
+   shapes also fill — same per-layer colors as tracks */
+.pcb-copper-gfx { fill: none; stroke-linecap: round; stroke-linejoin: round; pointer-events: stroke; }
+.pcb-copper-gfx.filled { pointer-events: fill; }
+.pcb-copper-gfx.layer-F_Cu { stroke: var(--pcb-fcu); }
+.pcb-copper-gfx.layer-B_Cu { stroke: var(--pcb-bcu); }
+.pcb-copper-gfx.filled.layer-F_Cu { fill: var(--pcb-fcu); }
+.pcb-copper-gfx.filled.layer-B_Cu { fill: var(--pcb-bcu); }
 .pcb-pad-copper { fill: var(--pcb-pad); stroke: none; }
 .pcb-hole { fill: var(--pcb-hole); stroke: none; pointer-events: none; }
 .pcb-pad { pointer-events: fill; }
@@ -47,12 +55,15 @@ svg.pcb-panning { cursor: grabbing; }
 /* selection: dim everything, light the chosen net/part */
 .pcb-root.has-selection .pcb-track,
 .pcb-root.has-selection .pcb-zone,
+.pcb-root.has-selection .pcb-copper-gfx,
 .pcb-root.has-selection .pcb-pad-copper,
 .pcb-root.has-selection .pcb-via-copper,
 .pcb-root.has-selection .pcb-ref,
 .pcb-root.has-selection .pcb-silk { opacity: var(--ksv-dim-opacity); transition: opacity .08s; }
 
 .pcb-track.ksv-on { opacity: 1 !important; stroke: var(--ksv-highlight); }
+.pcb-copper-gfx.ksv-on { opacity: 1 !important; stroke: var(--ksv-highlight); }
+.pcb-copper-gfx.filled.ksv-on { fill: var(--ksv-highlight); }
 .pcb-zone.ksv-on { opacity: calc(var(--pcb-zone-opacity) + 0.25) !important; fill: var(--ksv-highlight); }
 .pcb-pad-copper.ksv-on, .pcb-via-copper.ksv-on { opacity: 1 !important; fill: var(--ksv-highlight); }
 .pcb-ref.ksv-on { opacity: 1 !important; fill: var(--ksv-highlight); }

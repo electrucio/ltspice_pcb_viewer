@@ -149,6 +149,16 @@ export function renderPcb(pcb: Pcb): RenderResult {
     into(t.layer).append(hit, line);
   }
 
+  // copper board graphics (KiCad 9/10: gr_poly & co. on copper, optionally
+  // net-assigned — real connected copper, drawn like tracks and net-highlightable)
+  for (const g of pcb.graphics) {
+    if (!g.layer.endsWith(".Cu") || !groups.has(g.layer)) continue;
+    const node = strokeGraphic(g, `pcb-copper-gfx layer-${layerId(g.layer)}`);
+    if (!node) continue;
+    if (g.net) node.dataset.net = g.net;
+    into(g.layer).appendChild(node);
+  }
+
   // pads (through-hole pads live on the shared "pads" layer)
   for (const f of pcb.footprints) {
     for (const p of f.pads) {
