@@ -139,15 +139,17 @@ export function initAnalysis(mapper: MapperEl, aside: HTMLElement): void {
     return [...seen.values()].sort((a, b) => a.id.localeCompare(b.id));
   }
 
-  // net selection: follow PCB clicks (composed events bubble out of the mapper)
+  // net selection: follow PCB clicks. Composed events RETARGET at shadow
+  // boundaries (e.target becomes the mapper host) — the true source is only in
+  // composedPath(), which also distinguishes the PCB from the schematic viewers.
+  const fromPcb = (e: Event): boolean => e.composedPath().some((n) => (n as HTMLElement).tagName === "KICAD-PCB");
   document.addEventListener("netselect", (e) => {
-    const t = e.target as HTMLElement;
-    if (t.tagName !== "KICAD-PCB" || aside.hidden) return;
+    if (!fromPcb(e) || aside.hidden) return;
     const name = (e as CustomEvent<{ name: string } | null>).detail?.name ?? null;
     if (name !== selNet) setNet(name);
   });
   document.addEventListener("ready", (e) => {
-    if ((e.target as HTMLElement).tagName === "KICAD-PCB") refreshBoard();
+    if (fromPcb(e)) refreshBoard();
   });
   netSel.addEventListener("change", () => {
     setNet(netSel.value || null);
@@ -305,6 +307,11 @@ export function initAnalysis(mapper: MapperEl, aside: HTMLElement): void {
         const msg = e.data;
         if (msg.id !== busyId) return; // stale
         if (msg.kind === "progress") { statusEl.textContent = `⏳ ${msg.stage}…`; return; }
+        if (msg.kind === "preview") {
+          // coarse-pass ballpark, shown while the fine pass refines it
+          rresEl.innerHTML = `<b>R ≈ ${fmtOhm(msg.resistance)}</b> <span class="hint">(coarse mesh, ${msg.msSoFar.toFixed(0)} ms — refining…)</span>`;
+          return;
+        }
         busyId = null;
         solveBtn.disabled = false;
         cancelBtn.hidden = true;

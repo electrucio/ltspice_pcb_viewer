@@ -48,11 +48,20 @@ let cachedText: string | null = null;
 let cachedPcb: Pcb | null = null;
 let mesherReady = false;
 
+export interface SolvePreview {
+  /** the coarse-pass resistance — a usable ballpark in ~half the total time */
+  resistance: number;
+  dofs: number;
+  msSoFar: number;
+}
+
 export async function runSolve(
   req: SolveRequest,
   onStage: (stage: SolveStage) => void,
   /** test hook: pass the wasm bytes in node (browser fetches next to the pkg JS) */
   wasmInit?: Parameters<typeof initRuppert>[0],
+  /** called with the coarse-pass result while the fine pass still runs */
+  onPreview?: (preview: SolvePreview) => void,
 ): Promise<SolveSuccess> {
   if (!mesherReady) {
     onStage("initializing mesher");
@@ -70,6 +79,7 @@ export async function runSolve(
 
   onStage("solving (coarse mesh)");
   const coarse = solveNetResistance(pcb, req.net, req.padA, req.padB, { maxEdgeLength: h, refinement: "ruppert" });
+  onPreview?.({ resistance: coarse.resistance, dofs: coarse.dofs, msSoFar: performance.now() - t0 });
   onStage("solving (fine mesh)");
   const fine = solveNetResistance(pcb, req.net, req.padA, req.padB, {
     maxEdgeLength: h / 2,

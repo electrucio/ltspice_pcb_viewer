@@ -7,13 +7,19 @@ const wasm = readFileSync(fileURLToPath(new URL("../../geometry_core/pkg/geometr
 const board = readFileSync(fileURLToPath(new URL("../../kicad_pcb_viewer/test/fixtures/poweramp.kicad_pcb", import.meta.url)), "utf8");
 
 describe("solve worker core (headless — the physics path the worker runs)", () => {
-  it("solves poweramp /POW1 R2.1↔R9.1 with staged progress and a field", async () => {
+  it("solves poweramp /POW1 R2.1↔R9.1 with staged progress, preview and a field", async () => {
     const stages: SolveStage[] = [];
+    let preview: { resistance: number } | null = null;
+    let doneBeforePreview = true;
     const r = await runSolve(
       { id: 1, pcbText: board, net: "/POW1", padA: "R2.1", padB: "R9.1", wantField: true },
       (s) => stages.push(s),
       { module_or_path: wasm },
+      (p) => { preview = p; doneBeforePreview = false; },
     );
+    // the coarse preview fired mid-run and equals the reported coarse resistance
+    expect(doneBeforePreview).toBe(false);
+    expect(preview!.resistance).toBeCloseTo(r.coarseResistance, 15);
     // known value: 3.807 mΩ ± ~0.3 % (P2.3 measurement)
     expect(r.resistance).toBeGreaterThan(3e-3);
     expect(r.resistance).toBeLessThan(5e-3);

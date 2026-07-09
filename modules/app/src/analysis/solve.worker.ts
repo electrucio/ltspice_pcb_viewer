@@ -4,19 +4,27 @@
  * lazily. All physics lives in solve-core.ts (tested headless).
  */
 
-import { runSolve, type SolveRequest, type SolveSuccess, type SolveStage } from "./solve-core.js";
+import { runSolve, type SolveRequest, type SolveSuccess, type SolveStage, type SolvePreview } from "./solve-core.js";
 
 export type WorkerReply =
   | { id: number; kind: "progress"; stage: SolveStage }
+  | ({ id: number; kind: "preview" } & SolvePreview)
   | SolveSuccess
   | { id: number; kind: "error"; message: string };
 
 self.onmessage = async (e: MessageEvent<SolveRequest>) => {
   const req = e.data;
   try {
-    const result = await runSolve(req, (stage) => {
-      self.postMessage({ id: req.id, kind: "progress", stage } satisfies WorkerReply);
-    });
+    const result = await runSolve(
+      req,
+      (stage) => {
+        self.postMessage({ id: req.id, kind: "progress", stage } satisfies WorkerReply);
+      },
+      undefined,
+      (preview) => {
+        self.postMessage({ id: req.id, kind: "preview", ...preview } satisfies WorkerReply);
+      },
+    );
     // transfer the big field buffers instead of copying them
     const transfer: Transferable[] = [];
     for (const f of result.field ?? []) {
