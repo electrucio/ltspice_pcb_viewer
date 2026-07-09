@@ -18,7 +18,31 @@
       .appbar button:hover { filter: brightness(1.15); }
       .appbar button.primary { background: #1a8f3c; border-color: #1a8f3c; color: #fff; font-weight: 700; }
       .appbar .msg { color: #39d353; min-width: 90px; }
-      ltspice-kicad-mapper { flex: 1 1 auto; min-height: 0; }
+      .main { flex: 1 1 auto; min-height: 0; display: flex; }
+      ltspice-kicad-mapper { flex: 1 1 auto; min-width: 0; min-height: 0; }
+      /* PCB analysis drawer (hidden until ⚡ Analysis is toggled) */
+      #analysis { flex: 0 0 340px; overflow-y: auto; padding: 10px 12px; font-size: 12px;
+        background: #f5f6f8; border-left: 1px solid #d5d9df; }
+      #analysis[hidden] { display: none; }
+      #analysis h2 { font-size: 13px; margin: 0 0 8px; }
+      #analysis .net-line { padding: 6px 8px; margin-bottom: 8px; background: #fff;
+        border: 1px solid #d5d9df; border-radius: 6px; }
+      #analysis .net-line select { max-width: 100%; }
+      #analysis details { margin: 8px 0; padding: 6px 8px; background: #fff;
+        border: 1px solid #d5d9df; border-radius: 6px; }
+      #analysis summary { cursor: pointer; font-weight: 600; }
+      #analysis label { display: block; margin: 5px 0; }
+      #analysis select, #analysis input[type="number"] { font: inherit; }
+      #analysis select[multiple] { width: 100%; }
+      #analysis .out { margin-top: 6px; white-space: pre-line; }
+      #analysis .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+        white-space: pre; overflow-x: auto; }
+      #analysis .hint { color: #667; font-style: italic; }
+      #analysis .warn { color: #b45309; }
+      #analysis .err { color: #b91c1c; }
+      #analysis button { padding: 5px 11px; font: inherit; font-weight: 600; cursor: pointer;
+        background: #2b333d; color: #e6e8ea; border: 1px solid #3a4350; border-radius: 6px; }
+      #analysis button:hover { filter: brightness(1.15); }
       /* SPICE directives panel */
       #dir-panel { position: fixed; right: 12px; top: 48px; z-index: 50; display: none;
         max-width: 540px; max-height: 60vh; overflow: auto; padding: 10px 12px;
@@ -40,11 +64,15 @@
       <button id="load-net">Load .net</button>
       <button id="load-log">Load .log</button>
       <button id="directives">ƒ directives</button>
+      <button id="analysis-btn">⚡ Analysis</button>
       <button id="download" class="primary">⬇ Download read-only HTML</button>
       <span id="msg" class="msg"></span>
     </div>
     <div id="dir-panel"></div>
-    <ltspice-kicad-mapper id="m" theme="light"></ltspice-kicad-mapper>
+    <div class="main">
+      <ltspice-kicad-mapper id="m" theme="light"></ltspice-kicad-mapper>
+      <aside id="analysis" hidden></aside>
+    </div>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

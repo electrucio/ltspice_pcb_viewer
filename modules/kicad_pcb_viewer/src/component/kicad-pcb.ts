@@ -61,7 +61,9 @@ export class KicadPcbElement extends HTMLElement {
   loadFromString(text: string): void {
     this.pcb = parsePcb(text);
     this.render();
-    this.dispatchEvent(new CustomEvent("ready", { detail: { nets: this.pcb.nets.length, components: this.getComponents().length } }));
+    // bubbles+composed like the other events, so hosts OUTSIDE the embedding shadow
+    // DOM (e.g. the app's analysis drawer around the mapper) see board reloads too
+    this.emit("ready", { nets: this.pcb.nets.length, components: this.getComponents().length });
   }
 
   private render(): void {
@@ -100,6 +102,18 @@ export class KicadPcbElement extends HTMLElement {
   /** Rotate by +90° (clockwise) and return the new absolute rotation. */
   rotate90(): number { const r = (this.getRotation() + 90) % 360; this.setRotation(r); return r; }
   fit(): void { this.controller?.fit(); }
+  /**
+   * Topmost SVG group in BOARD coordinates (mm, Y down) for external annotations —
+   * analysis overlays, markers. Recreated empty on every render/load: listen for the
+   * `ready` event and redraw. Appended nodes keep their event listeners (shadow DOM
+   * does not block them).
+   */
+  overlayGroup(): SVGGElement | null {
+    return this.rootEl.querySelector<SVGGElement>("g.pcb-overlay");
+  }
+  clearOverlay(): void { this.overlayGroup()?.replaceChildren(); }
+  /** The parsed board model (read-only by convention) — saves hosts a re-parse. */
+  getPcb(): Pcb | null { return this.pcb; }
   highlightNet(name: string): void { this.controller?.highlightNet(name); }
   highlightComponent(ref: string): void { this.controller?.highlightComponent(ref); }
   clearHighlights(): void { this.controller?.clearHighlights(); }

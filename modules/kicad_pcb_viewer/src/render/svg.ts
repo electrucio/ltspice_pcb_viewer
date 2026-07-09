@@ -231,5 +231,11 @@ export function renderPcb(pcb: Pcb): RenderResult {
     into("refs").appendChild(t);
   }
 
+  // overlay: an empty topmost group in BOARD coordinates for external annotations
+  // (analysis heatmaps, markers). Lives inside `content` so pan/zoom/mirror/rotation
+  // apply; hosts fill it via KicadPcbElement.overlayGroup().
+  const overlay = el("g", { class: "pcb-overlay" });
+  content.appendChild(overlay);
+
   return { svg, content, bbox: pcb.bbox, layers: order.filter((id) => id !== "board") };
 }

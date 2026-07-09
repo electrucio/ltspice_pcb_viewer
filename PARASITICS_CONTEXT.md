@@ -157,8 +157,21 @@ Current status:
   profile rows coalesce consecutive identical segments; shares reference nets +
   f with the net-level panel. openair /SCL I2C2.3→U12.6: 98.4 mm, 597 ps,
   3 vias, flat 39 Ω, 5.5 mm stub at 68.9 mm.
-- **Next**: app-level integration, plane-net fast preview, coupled lines /
-  differential pairs (HJ coupled equations), M6/M7 field solvers vs atlc.
+- **App integration — DONE (v1)**: the main app has a ⚡ Analysis right drawer
+  (hidden until toggled; `modules/app/src/analysis/{drawer,overlay,solve-core}.ts`
+  + `solve.worker.ts` — the repo's FIRST Web Worker; two-mesh Richardson inline so
+  it can post stage progress; cancel = terminate; parsed-board cache in-worker;
+  field buffers transferred). Composition is app-level: the drawer listens to the
+  composed `netselect`/`ready` events bubbling out of the mapper's `<kicad-pcb>`
+  (`ready` was NOT bubbling — fixed in the viewer), reads the model via the new
+  `getPcb()`, paints heatmap/pad markers into the new viewer `overlayGroup()`
+  (empty topmost group in board coords inside the content transform; recreated on
+  render → redraw on `ready`). Mapper gained only a `pcbElement` getter. Read-only
+  Safari-12 export untouched (template contains zero analysis code; the empty
+  overlay group is harmless). Headless worker-core tests (app suite) solve
+  poweramp through the exact worker path. Suites 24+71+33+41+34+16, all tsc green.
+- **Next**: plane-net fast preview, coupled lines / differential pairs
+  (HJ coupled equations 13–32), M6/M7 field solvers vs atlc, PDN Z(f).
 
 ## 2. Module: `modules/pcb_mesh` (TypeScript)
 

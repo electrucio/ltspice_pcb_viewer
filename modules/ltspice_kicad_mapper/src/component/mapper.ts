@@ -204,6 +204,11 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     if (view === "pcb" && this.pcbReady && !this.pcbFitted) { this.kicadPcb.fit(); this.pcbFitted = true; }
   }
 
+  /** The embedded PCB viewer element — hosts compose analysis UIs around it. */
+  get pcbElement(): PcbViewerElement | null {
+    return this.kicadPcb ?? null;
+  }
+
   /** Raw sources of everything currently loaded, for baking into a static export. */
   getSources(): MapperSources {
     return {

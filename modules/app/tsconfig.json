@@ -14,5 +14,5 @@
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "viewer"]
+  "include": ["src", "viewer", "../pcb_mesh/src/mesh/cdt2d.d.ts"]
 }

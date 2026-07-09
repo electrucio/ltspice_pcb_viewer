@@ -14,10 +14,17 @@ import type { ExportPayload } from "../viewer/payload.js";
 import { buildSimSummary, compType } from "./sim/build.js";
 import { decodeNetlist, parseNetlistRefs, buildNetNodeAlias } from "./sim/netlist.js";
 import { decodeLog, parseLog, mergeLog, type ParsedLog } from "./sim/logfile.js";
+import { initAnalysis } from "./analysis/drawer.js";
 
 const mapper = document.getElementById("m") as LtspiceKicadMapperElement;
 const msgEl = document.getElementById("msg")!;
 const setMsg = (s: string): void => { msgEl.textContent = s; };
+
+// ⚡ Analysis drawer (PCB parasitics) — hidden until toggled
+const analysisAside = document.getElementById("analysis")!;
+document.getElementById("analysis-btn")!.addEventListener("click", () => {
+  analysisAside.hidden = !analysisAside.hidden;
+});
 
 let simulation: SimSummary | null = null;
 let builtSummary: SimSummary | null = null; // from the .raw (V stats + component metrics), pre-.log
@@ -40,6 +47,7 @@ async function boot(): Promise<void> {
     mapper.loadKicadUrl("./poweramp.kicad_sch"),
     mapper.loadKicadPcbUrl("./poweramp.kicad_pcb"),
   ]);
+  initAnalysis(mapper as unknown as Parameters<typeof initAnalysis>[0], analysisAside);
   setMsg("");
 }
 
