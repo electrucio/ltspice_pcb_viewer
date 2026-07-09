@@ -47,6 +47,11 @@ export const STYLESHEET = `
 .hdrbtn:hover { border-color: var(--accent); }
 
 .lists { flex: 0 0 40%; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--line); background: var(--panel); }
+.lists.collapsed { flex: 0 0 auto; }
+.lists.collapsed .filter, .lists.collapsed .list { display: none; }
+.tabs .fold { flex: 0 0 auto; margin-left: auto; padding: 5px 8px; background: transparent;
+  border: none; cursor: pointer; color: var(--muted); font: inherit; }
+.tabs .fold:hover { color: var(--fg); }
 .tabs { display: flex; gap: 2px; padding: 6px 8px 0; flex: 0 0 auto; }
 .tab { flex: 1; padding: 5px; background: transparent; border: none; border-bottom: 2px solid transparent;
   color: var(--muted); cursor: pointer; font: inherit; font-weight: 600; }

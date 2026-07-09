@@ -356,7 +356,15 @@ export class LtspiceKicadMapperElement extends HTMLElement {
     const compTab = this.button("Components", () => this.setTab(side, "component"));
     netTab.classList.add("tab", "active");
     compTab.classList.add("tab");
-    tabs.append(netTab, compTab);
+    // collapse toggle: fold the whole list section, giving the viewer the height
+    const fold = this.button("▾", () => {
+      const collapsed = lists.classList.toggle("collapsed");
+      fold.textContent = collapsed ? "▸" : "▾";
+      fold.title = collapsed ? "Expand nets/components" : "Collapse nets/components";
+    });
+    fold.classList.add("fold");
+    fold.title = "Collapse nets/components";
+    tabs.append(netTab, compTab, fold);
     const filter = document.createElement("input");
     filter.placeholder = "Filter…";
     filter.className = "filter";
