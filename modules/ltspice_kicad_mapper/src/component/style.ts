@@ -23,9 +23,12 @@ export const STYLESHEET = `
 .counts { color: var(--muted); margin-left: auto; font-weight: 600; }
 .status { color: var(--accent); flex-basis: 100%; min-height: 1em; font-weight: 600; }
 
-.panes { flex: 1 1 auto; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
-.pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); }
-.pane:last-child { border-right: none; }
+.panes { flex: 1 1 auto; display: flex; min-height: 0; }
+.pane { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.pane-divider { flex: 0 0 6px; align-self: stretch; cursor: col-resize; background: var(--line); position: relative; }
+.pane-divider:hover, .pane-divider.drag { background: var(--accent); }
+/* widen the hit area without widening the bar */
+.pane-divider::before { content: ""; position: absolute; left: -5px; right: -5px; top: 0; bottom: 0; z-index: 1; }
 .pane > header { flex: 0 0 auto; display: flex; justify-content: space-between; align-items: baseline;
   padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .pane-title { font-weight: 700; }

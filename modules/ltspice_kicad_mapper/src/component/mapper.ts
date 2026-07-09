@@ -287,8 +287,13 @@ export class LtspiceKicadMapperElement extends HTMLElement {
       ltspice: this.buildPane("ltspice", "LTspice", "ltspice-schematic"),
       kicad: this.buildPane("kicad", "KiCad", "kicad-schematic"),
     };
-    panes.append(this.sides.ltspice.viewer.closest(".pane")!, this.sides.kicad.viewer.closest(".pane")!);
+    const leftPane = this.sides.ltspice.viewer.closest(".pane") as HTMLElement;
+    const rightPane = this.sides.kicad.viewer.closest(".pane") as HTMLElement;
+    const divider = h("div", "pane-divider");
+    divider.title = "Drag to resize · double-click to reset";
+    panes.append(leftPane, divider, rightPane);
     wrap.appendChild(panes);
+    this.setupPaneDivider(panes, divider, leftPane, rightPane);
     shadow.appendChild(wrap);
 
     this.setupKicadPcb();
@@ -313,6 +318,26 @@ export class LtspiceKicadMapperElement extends HTMLElement {
   private applyTheme(theme: string): void {
     this.shadowRoot!.host.setAttribute("data-theme", theme);
     for (const side of ["ltspice", "kicad"] as Side[]) this.sides[side].viewer.setAttribute("theme", theme);
+  }
+
+  /** Draggable split between the two panes (same UX as the read-only export). */
+  private setupPaneDivider(panes: HTMLElement, divider: HTMLElement, left: HTMLElement, right: HTMLElement): void {
+    let dragging = false;
+    const setSplit = (clientX: number): void => {
+      const r = panes.getBoundingClientRect();
+      const p = Math.max(12, Math.min(88, ((clientX - r.left) / r.width) * 100));
+      left.style.flex = `${p} 1 0`;
+      right.style.flex = `${100 - p} 1 0`;
+    };
+    const start = (e: Event): void => { e.preventDefault(); dragging = true; divider.classList.add("drag"); document.body.style.userSelect = "none"; };
+    const end = (): void => { dragging = false; divider.classList.remove("drag"); document.body.style.userSelect = ""; };
+    divider.addEventListener("mousedown", start);
+    window.addEventListener("mousemove", (e) => { if (dragging) setSplit(e.clientX); });
+    window.addEventListener("mouseup", end);
+    divider.addEventListener("touchstart", start, { passive: false });
+    divider.addEventListener("touchmove", (e) => { e.preventDefault(); if (e.touches[0]) setSplit(e.touches[0].clientX); }, { passive: false });
+    divider.addEventListener("touchend", end);
+    divider.addEventListener("dblclick", () => { left.style.flex = "1 1 0"; right.style.flex = "1 1 0"; });
   }
 
   private buildPane(side: Side, label: string, tag: string): SideState {
