@@ -106,7 +106,7 @@ function matches(t: { id: string; refs: string[] }, query: string): boolean {
  * Dielectric span between two copper layers, METERS: sum of the stackup layers
  * between them; without a stackup, an even share of the 1.6 mm default board.
  */
-function layerGapM(pcb: Pcb, order: string[], a: string, b: string): number {
+export function layerGapM(pcb: Pcb, order: string[], a: string, b: string): number {
   const s = pcb.stackup;
   if (s) {
     const ia = s.findIndex((l) => l.type === "copper" && l.name === a);

@@ -11,6 +11,7 @@ export function makePcb(partial: Partial<Pcb>): Pcb {
     nets: [],
     layers: [],
     copperStack: ["F.Cu", "B.Cu"],
+    copperLayerTypes: {},
     bbox: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
     ...partial,
   };

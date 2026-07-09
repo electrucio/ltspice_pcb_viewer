@@ -131,9 +131,24 @@ Current status:
   ∂L/∂n on our own stripline model — no empirical constants; verified against
   the wide-strip parallel-plate closed form R′=(Rs/w)(1+g/w) to 5%).
   FR4@1GHz sanity: dielectric-limited, ~2 dB/m total.
-- **M5 next**: net-segment classifier (microstrip vs stripline from stackup),
-  per-segment RLGC output contract + demo panel. Then app-level integration,
-  plane-net fast preview.
+- **M5 classifier (solver_rdc/src/rlgc.ts) — M5 COMPLETE (v1)**:
+  `analyzeNetRlgc(pcb, net, {referenceNets, frequencyHz})` walks a net's track
+  segments and emits the FOSDEM contract per segment: kind, Z0, ε_eff, delay,
+  R/L/G/C (R=2αc·Z0, G=2αd/Z0 in nepers), α dB/m, skin depth, thickCopper.
+  **Reference planes are the USER's choice** (per user directive — no net-name
+  guessing): a layer is a plane for a segment when a zone of a `referenceNets`
+  net covers the segment midpoint; only layers DECLARED `power` in the layer
+  table count automatically. Both planes → stripline (thickness-weighted εr
+  across both gaps, offset from stackup); one → microstrip (buried-with-one-
+  plane flagged as approximation); none → unmodeled with the reason. Every
+  fallback lands in `assumed` — never silent. Demo panel: pick reference nets
+  (pour list, largest first), f input, grouped per (layer, kind, width) with
+  Z0 ranges, totals, discontinuity warning. Parser now also exposes
+  `Pcb.copperLayerTypes` (signal/power/mixed) from the layers table.
+  openair-max /SCL @1 GHz: 276.9/276.9 mm modeled (262.7 microstrip + 14.2
+  stripline), Z0 36–108 Ω, 1.68 ns.
+- **Next**: app-level integration, plane-net fast preview, coupled lines /
+  differential pairs (HJ coupled equations), M6/M7 field solvers vs atlc.
 
 ## 2. Module: `modules/pcb_mesh` (TypeScript)
 

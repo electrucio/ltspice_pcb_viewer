@@ -121,6 +121,8 @@ export interface Pcb {
   /** copper layer names in physical stack order (from the file's `(layers …)`
    *  declaration, F.Cu → … → B.Cu) — the authority for via SPAN questions */
   copperStack: string[];
+  /** copper layer type from the `(layers …)` table: "signal" | "power" | "mixed" | "jumper" */
+  copperLayerTypes: Record<string, string>;
   /** physical stackup in top-to-bottom order; undefined when the file has none (pre-KiCad-6) */
   stackup?: StackupLayer[];
   bbox: BBox;
@@ -309,10 +311,14 @@ export function parsePcb(text: string, sign: number = ROT_SIGN): Pcb {
   // ordered (B.Cu is always 2, inner layers 4, 6, …), so keep the textual order.
   const copperStack: string[] = [];
   const layersDecl = child(root, "layers");
+  const copperLayerTypes: Record<string, string> = {};
   if (layersDecl) {
     for (const l of layersDecl.children) {
       const name = String(l.values[0] ?? "");
-      if (Number.isFinite(Number(l.name)) && name.endsWith(".Cu")) copperStack.push(name);
+      if (Number.isFinite(Number(l.name)) && name.endsWith(".Cu")) {
+        copperStack.push(name);
+        copperLayerTypes[name] = String(l.values[1] ?? "signal");
+      }
     }
   }
 
@@ -443,5 +449,5 @@ export function parsePcb(text: string, sign: number = ROT_SIGN): Pcb {
     for (const f of footprints) for (const p of f.pads) grow(bbox, p.pos);
   }
 
-  return { footprints, tracks, vias, zones, graphics, texts, copperStack, stackup, nets: [...netSet].sort(), layers: [...new Set([...tracks.map((t) => t.layer), ...graphics.map((g) => g.layer)])], bbox };
+  return { footprints, tracks, vias, zones, graphics, texts, copperStack, copperLayerTypes, stackup, nets: [...netSet].sort(), layers: [...new Set([...tracks.map((t) => t.layer), ...graphics.map((g) => g.layer)])], bbox };
 }

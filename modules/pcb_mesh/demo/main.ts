@@ -14,6 +14,7 @@ import { analyzeRegion } from "../src/verify.js";
 import { initRuppert, ruppertReady } from "../src/mesh/ruppert.js";
 import type { LayerField } from "../../solver_rdc/src/solve.js";
 import { solveWithErrorEstimate } from "../../solver_rdc/src/richardson.js";
+import { analyzeNetRlgc } from "../../solver_rdc/src/rlgc.js";
 import { sheetResistance } from "../../analytic_models/src/index.js";
 import { estimateResistance } from "../../solver_rdc/src/estimate.js";
 import type { BoardMesh, RegionMesh, SanitationReport } from "../src/types.js";
@@ -457,7 +458,81 @@ function selectNet(net: string | null): void {
   renderNetList();
   renderInfo();
   renderSolvePanel();
+  renderRlgcPanel();
 }
+
+// ---- transmission-line panel (M5): per-segment Z0/RLGC ------------------------
+// Reference planes are the USER's choice: pick the pour nets from the list
+// (largest zones first). Layers declared "power" in the file always count.
+
+const rlgcEl = document.getElementById("rlgc") as HTMLDivElement;
+const refNetsSel = document.getElementById("refNets") as HTMLSelectElement;
+const rlgcFreqEl = document.getElementById("rlgcFreq") as HTMLInputElement;
+const rlgcOutEl = document.getElementById("rlgcout")!;
+let chosenRefNets = new Set<string>();
+
+function renderRlgcPanel(): void {
+  if (!selectedNet || !pcb.tracks.some((t) => t.net === selectedNet)) { rlgcEl.hidden = true; return; }
+  rlgcEl.hidden = false;
+  // candidate planes: nets with zone fills, largest total area first
+  const areas = new Map<string, number>();
+  for (const z of pcb.zones) {
+    if (!z.net || z.net === selectedNet || z.pts.length < 3) continue;
+    let a = 0;
+    for (let i = 0, j = z.pts.length - 1; i < z.pts.length; j = i++) a += z.pts[j]!.x * z.pts[i]!.y - z.pts[i]!.x * z.pts[j]!.y;
+    areas.set(z.net, (areas.get(z.net) ?? 0) + Math.abs(a / 2));
+  }
+  const cands = [...areas.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
+  refNetsSel.replaceChildren(
+    ...cands.map(([n, a]) => {
+      const o = new Option(`${n} (${a.toFixed(0)} mm² pour)`, n);
+      o.selected = chosenRefNets.has(n);
+      return o;
+    }),
+  );
+  runRlgc();
+}
+
+function runRlgc(): void {
+  if (!selectedNet) return;
+  chosenRefNets = new Set([...refNetsSel.selectedOptions].map((o) => o.value));
+  const f = Math.max(0.01, Number(rlgcFreqEl.value) || 1) * 1e9;
+  const r = analyzeNetRlgc(pcb, selectedNet, { referenceNets: [...chosenRefNets], frequencyHz: f });
+
+  // group segments by (layer, kind, width)
+  const groups = new Map<string, { lengthMm: number; z0Min: number; z0Max: number; alpha: number; kind: string }>();
+  const assumed = new Set<string>();
+  const reasons = new Set<string>();
+  for (const s of r.segments) {
+    s.assumed.forEach((a) => assumed.add(a));
+    if (s.kind === "unmodeled") { if (s.reason) reasons.add(s.reason); continue; }
+    const key = `${s.layer} ${s.kind} w=${s.widthMm.toFixed(2)}`;
+    const g = groups.get(key) ?? { lengthMm: 0, z0Min: Infinity, z0Max: -Infinity, alpha: 0, kind: s.kind };
+    g.lengthMm += s.lengthMm;
+    g.z0Min = Math.min(g.z0Min, s.z0!);
+    g.z0Max = Math.max(g.z0Max, s.z0!);
+    g.alpha = s.alphaDbPerM!;
+    groups.set(key, g);
+  }
+  const lines: string[] = [];
+  for (const [key, g] of [...groups.entries()].sort((a, b) => b[1].lengthMm - a[1].lengthMm)) {
+    const z = g.z0Min === g.z0Max ? `${g.z0Min.toFixed(1)} Ω` : `${g.z0Min.toFixed(1)}–${g.z0Max.toFixed(1)} Ω`;
+    lines.push(`${key} mm: ${g.lengthMm.toFixed(1)} mm · Z0 ${z} · ${g.alpha.toFixed(2)} dB/m`);
+  }
+  const t = r.totals;
+  if (t.modeledLengthMm > 0) {
+    lines.push(
+      `total ${t.modeledLengthMm.toFixed(1)}/${t.lengthMm.toFixed(1)} mm modeled · delay ${(t.delayS * 1e12).toFixed(0)} ps` +
+      (t.z0Min !== undefined && t.z0Max! - t.z0Min > 5 ? ` · ⚠ Z0 spans ${t.z0Min.toFixed(0)}–${t.z0Max!.toFixed(0)} Ω (discontinuities)` : ""),
+    );
+  }
+  if (t.kinds["unmodeled"]) lines.push(`⚠ ${t.kinds["unmodeled"].toFixed(1)} mm unmodeled: ${[...reasons].join("; ")}`);
+  for (const a of assumed) lines.push(`· ${a}`);
+  rlgcOutEl.textContent = lines.join("\n") || "no track segments on this net";
+}
+
+refNetsSel.addEventListener("change", runRlgc);
+rlgcFreqEl.addEventListener("change", runRlgc);
 
 function netPads(net: string): Array<{ id: string; x: number; y: number }> {
   const seen = new Map<string, { id: string; x: number; y: number }>();
@@ -701,6 +776,8 @@ function loadBoard(text: string, name = "board"): void {
     boardGen++; // invalidate the per-layer mesh cache
     meshCache.clear();
     renderedKey = "";
+    chosenRefNets.clear(); // reference-plane choices are per board
+    rlgcEl.hidden = true;
     const layers = [...new Set([...pcb.tracks.map((t) => t.layer), ...pcb.zones.map((z) => z.layer), ...pcb.footprints.flatMap((f) => f.pads.flatMap((p) => p.layers)), ...pcb.graphics.map((g) => g.layer)])]
       .filter((l) => l.endsWith(".Cu") && !l.startsWith("*") && l !== "F&B.Cu")
       .sort((a, b) => (a === "F.Cu" ? -1 : b === "F.Cu" ? 1 : a === "B.Cu" ? 1 : b === "B.Cu" ? -1 : a.localeCompare(b)));

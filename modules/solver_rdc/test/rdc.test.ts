@@ -28,7 +28,7 @@ function zonePcb(pts: Array<[number, number]>, pads: Pad[]): Pcb {
     footprints: pads.map((p) => fp([p])),
     tracks: [], vias: [],
     zones: [{ layer: "F.Cu", net: "N1", pts: pts.map(([x, y]) => ({ x, y })) }],
-    graphics: [], texts: [], nets: ["N1"], layers: ["F.Cu"], copperStack: ["F.Cu"],
+    graphics: [], texts: [], nets: ["N1"], layers: ["F.Cu"], copperStack: ["F.Cu"], copperLayerTypes: {},
     bbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 },
   };
 }
@@ -155,7 +155,7 @@ describe("real board (poweramp)", () => {
       tracks: [{ start: { x: 1, y: 0.5 }, end: { x: 9, y: 0.5 }, width: 0.5, layer: "F.Cu", net: "N1" }],
       vias: [{ pos: { x: 1, y: 0.5 }, size: 0.45, drill: 0.2, layers: ["F.Cu", "B.Cu"], net: "N1" }],
       zones: [], graphics: [], texts: [], nets: ["N1"],
-      layers: ["F.Cu", "B.Cu"], copperStack: ["F.Cu", "B.Cu"],
+      layers: ["F.Cu", "B.Cu"], copperStack: ["F.Cu", "B.Cu"], copperLayerTypes: {},
       bbox: { minX: 0, minY: 0, maxX: 10, maxY: 1 },
     };
     const r = solveNetResistance(viaInPad, "N1", "A.1", "B.1", { ...OPTS, maxEdgeLength: 0.2 });
@@ -180,7 +180,7 @@ describe("lumped via barrels", () => {
     tracks: [{ start: { x: 1, y: 0.5 }, end: { x: 9, y: 0.5 }, width: 0.5, layer: "F.Cu", net: "N1" }],
     vias: [{ pos: { x: 1, y: 0.5 }, size: 0.45, drill: 0.2, layers: ["F.Cu", "B.Cu"], net: "N1" }],
     zones: [], graphics: [], texts: [], nets: ["N1"],
-    layers: ["F.Cu", "B.Cu"], copperStack: ["F.Cu", "B.Cu"],
+    layers: ["F.Cu", "B.Cu"], copperStack: ["F.Cu", "B.Cu"], copperLayerTypes: {},
     bbox: { minX: 0, minY: 0, maxX: 10, maxY: 1 },
   });
 

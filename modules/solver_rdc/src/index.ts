@@ -15,5 +15,7 @@ export { solveWithErrorEstimate } from "./richardson.js";
 export type { ErrorEstimateResult } from "./richardson.js";
 export { estimateResistance } from "./estimate.js";
 export type { EstimateOptions, EstimateResult } from "./estimate.js";
+export { analyzeNetRlgc } from "./rlgc.js";
+export type { RlgcOptions, RlgcSegment, RlgcResult } from "./rlgc.js";
 export { assembleStiffness, conjugateGradient, UnionFind } from "./fem.js";
 export type { SparseRows, CgResult } from "./fem.js";

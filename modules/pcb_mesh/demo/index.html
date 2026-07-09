@@ -20,6 +20,9 @@
       #errbox button { padding: 4px 14px; }
       #info { margin: 10px 0; padding: 8px; border: 1px solid #4a90d9; border-radius: 6px; font-size: 11px; line-height: 1.5; overflow-x: auto; }
       #solve { margin: 10px 0; padding: 8px; border: 1px solid #2e9e44; border-radius: 6px; }
+      #rlgc { margin: 10px 0; padding: 8px; border: 1px solid #b07ad9; border-radius: 6px; font-size: 12px; }
+      #rlgc select { width: 100%; margin-top: 2px; }
+      #rlgcout { margin-top: 6px; white-space: pre-line; font-size: 11.5px; }
       #solve select { max-width: 90px; }
       #rres { margin-top: 6px; white-space: pre-line; font-size: 12px; }
       #power { margin-top: 4px; white-space: pre-line; font-size: 12px; }
@@ -83,6 +86,14 @@
         <div id="rres"></div>
         <div id="power"></div>
         <div id="flowlegend"></div>
+      </div>
+      <div id="rlgc" hidden>
+        <b>Transmission line (M5)</b>
+        <label>reference nets (planes — pick the pours the signal runs over)
+          <select id="refNets" multiple size="4"></select>
+        </label>
+        <label>f (GHz) <input id="rlgcFreq" type="number" value="1" min="0.01" step="0.5" style="width:64px" /></label>
+        <div id="rlgcout"></div>
       </div>
       <pre id="info" hidden></pre>
       <ul id="nets"></ul>

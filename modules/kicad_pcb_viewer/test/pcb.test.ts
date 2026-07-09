@@ -136,8 +136,11 @@ describe("copper stack order (multilayer)", () => {
   it("uses the declaration's textual order, not the legacy numeric ids", () => {
     // KiCad ids are stable, not ordered: B.Cu is always 2, inner layers 4, 6, …
     const text = `(kicad_pcb (version 20241229) (generator "pcbnew")
-      (layers (0 "F.Cu" signal) (4 "In1.Cu" signal) (6 "In2.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))
+      (layers (0 "F.Cu" signal) (4 "In1.Cu" power) (6 "In2.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))
     )`;
-    expect(parsePcb(text).copperStack).toEqual(["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]);
+    const p = parsePcb(text);
+    expect(p.copperStack).toEqual(["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]);
+    // layer TYPES ride along — "power" marks declared reference planes (M5)
+    expect(p.copperLayerTypes).toEqual({ "F.Cu": "signal", "In1.Cu": "power", "In2.Cu": "signal", "B.Cu": "signal" });
   });
 });

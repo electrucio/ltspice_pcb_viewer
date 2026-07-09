@@ -40,7 +40,7 @@ function sheet(outline: Array<[number, number]>, contacts: Array<[string, number
     footprints: contacts.map(([ref, x, y]) => fp(pad(ref, x, y))),
     tracks: [], vias: [],
     zones: [{ layer: "F.Cu", net: "N1", pts: outline.map(([x, y]) => ({ x, y })) }],
-    graphics: [], texts: [], nets: ["N1"], layers: ["F.Cu"], copperStack: ["F.Cu"],
+    graphics: [], texts: [], nets: ["N1"], layers: ["F.Cu"], copperStack: ["F.Cu"], copperLayerTypes: {},
     bbox: { minX: 0, minY: 0, maxX: 12, maxY: 12 },
   };
 }
