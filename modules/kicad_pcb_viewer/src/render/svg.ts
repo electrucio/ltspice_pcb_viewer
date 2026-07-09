@@ -203,11 +203,16 @@ export function renderPcb(pcb: Pcb): RenderResult {
     if (sl) { const node = strokeGraphic(g, "pcb-silk"); if (node) into(sl).appendChild(node); }
   }
 
-  // board text (gr_text): silk + copper layers; mirrored text (bottom side) flips
+  // board text (gr_text): silk + copper layers; mirrored text (bottom side) flips.
+  // KiCad anchors at the justification point (default: centered both ways) — map it
+  // to SVG text-anchor / dominant-baseline so left/bottom-justified text (poweramp's
+  // "v1.0") lands exactly where KiCad draws it.
   for (const t of pcb.texts) {
     const grp = silkOf(t.layer) ?? (t.layer.endsWith(".Cu") && groups.has(t.layer) ? t.layer : null);
     if (!grp) continue;
-    const el2 = el("text", { x: 0, y: 0, "font-size": t.size, "text-anchor": "middle", "dominant-baseline": "middle" });
+    const anchor = t.justifyH === "left" ? "start" : t.justifyH === "right" ? "end" : "middle";
+    const baseline = t.justifyV === "top" ? "text-before-edge" : t.justifyV === "bottom" ? "text-after-edge" : "central";
+    const el2 = el("text", { x: 0, y: 0, "font-size": t.size, "text-anchor": anchor, "dominant-baseline": baseline });
     el2.setAttribute("class", t.layer.endsWith(".Cu") ? `pcb-copper-text layer-${layerId(t.layer)}` : "pcb-silk-text");
     el2.setAttribute("transform", `translate(${t.pos.x} ${t.pos.y}) rotate(${-t.angle})${t.mirror ? " scale(-1 1)" : ""}`);
     el2.textContent = t.text.replace(/\\n/g, " ");

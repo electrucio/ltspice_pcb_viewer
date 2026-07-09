@@ -90,6 +90,9 @@ export interface BoardText {
   /** font height, mm (default 1.27) */
   size: number;
   mirror: boolean;
+  /** anchor from `(justify …)` — KiCad defaults to centered both ways */
+  justifyH: "left" | "center" | "right";
+  justifyV: "top" | "center" | "bottom";
 }
 
 export interface BBox {
@@ -388,13 +391,17 @@ export function parsePcb(text: string, sign: number = ROT_SIGN): Pcb {
         const font = effects ? child(effects, "font") : undefined;
         const size = font ? (nums(child(font, "size"))[0] ?? 1.27) : 1.27;
         const justify = effects ? child(effects, "justify") : undefined;
+        const jv = justify ? justify.values.map(String) : [];
         texts.push({
           text: String(node.values[0] ?? ""),
           pos: { x: a.x, y: a.y },
           angle: a.angle,
           layer: childStr(node, "layer") ?? "",
           size,
-          mirror: justify ? justify.values.map(String).includes("mirror") : false,
+          mirror: jv.includes("mirror"),
+          // KiCad text is CENTERED both ways unless (justify …) says otherwise
+          justifyH: jv.includes("left") ? "left" : jv.includes("right") ? "right" : "center",
+          justifyV: jv.includes("top") ? "top" : jv.includes("bottom") ? "bottom" : "center",
         });
         break;
       }

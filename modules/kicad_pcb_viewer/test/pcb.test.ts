@@ -64,6 +64,19 @@ describe("board text (gr_text)", () => {
     expect(pcb.texts.some((t) => t.layer === "F.SilkS")).toBe(true);
   });
 
+  it("parses the justification anchor (v1.0 is left/bottom/mirror, not centered)", () => {
+    const cu = pcb.texts.find((t) => t.layer === "B.Cu")!;
+    expect(cu.justifyH).toBe("left");
+    expect(cu.justifyV).toBe("bottom");
+    expect(cu.mirror).toBe(true);
+    // no justify block → KiCad's default: centered both ways
+    const bare = parsePcb(`(kicad_pcb (version 20241229) (generator "pcbnew")
+      (gr_text "x" (at 1 2) (layer "F.SilkS") (effects (font (size 1 1)))))`);
+    expect(bare.texts[0]!.justifyH).toBe("center");
+    expect(bare.texts[0]!.justifyV).toBe("center");
+    expect(bare.texts[0]!.mirror).toBe(false);
+  });
+
   it("declares the copper stack in physical order", () => {
     expect(pcb.copperStack).toEqual(["F.Cu", "B.Cu"]);
   });
