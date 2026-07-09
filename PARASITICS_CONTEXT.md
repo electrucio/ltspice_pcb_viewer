@@ -123,9 +123,17 @@ Current status:
   t=0. NOTE: Wheeler 1977 (the paper we hold) is a MICROSTRIP source (HJ cite
   it for thickness) — stripline's canonical source is Cohn; label fixed.
   50 Ω FR4 stripline: w≈0.40 mm in b=1 mm (εr 4.5) → 50.35 Ω.
-- **M5 next**: loss models (HJ eqs 33–38 + roughness, stripline losses),
-  net-segment classifier (microstrip vs stripline from stackup), per-segment
-  RLGC output contract. Then app-level integration, plane-net fast preview.
+- **M5 losses (analytic_models/src/losses.ts)**: skin depth/Rs + HJ (35)
+  roughness (saturates at 2×); microstrip αc/αd per HJ (33)–(38) (Qc with K
+  factor, valid t>3δ — `thickCopper` flag) matching the KiCad-9 transcription
+  to 1e-11 over a 36-row (w,εr,f,roughness) grid; stripline αd EXACT
+  (homogeneous) and αc by **Wheeler's incremental-inductance rule** (numeric
+  ∂L/∂n on our own stripline model — no empirical constants; verified against
+  the wide-strip parallel-plate closed form R′=(Rs/w)(1+g/w) to 5%).
+  FR4@1GHz sanity: dielectric-limited, ~2 dB/m total.
+- **M5 next**: net-segment classifier (microstrip vs stripline from stackup),
+  per-segment RLGC output contract + demo panel. Then app-level integration,
+  plane-net fast preview.
 
 ## 2. Module: `modules/pcb_mesh` (TypeScript)
 

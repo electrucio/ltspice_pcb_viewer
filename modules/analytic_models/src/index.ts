@@ -26,3 +26,5 @@ export { microstrip, z0Homogeneous, epsEffStatic, deltaU, ETA0 } from "./microst
 export type { MicrostripInput, MicrostripResult } from "./microstrip.js";
 export { stripline, striplineCohnExact } from "./stripline.js";
 export type { StriplineInput, StriplineResult } from "./stripline.js";
+export { microstripLoss, striplineLoss, skinDepthM, surfaceResistance } from "./losses.js";
+export type { LossInput, LossResult } from "./losses.js";
