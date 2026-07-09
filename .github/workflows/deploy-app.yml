@@ -16,6 +16,11 @@ on:
       - "modules/kicad_schematic_viewer/**"
       - "modules/ltspice_schematic_viewer/**"
       - "modules/kicad_pcb_viewer/**"
+      # the analysis drawer bundles these into the app
+      - "modules/pcb_mesh/**"
+      - "modules/solver_rdc/**"
+      - "modules/analytic_models/**"
+      - "modules/geometry_core/pkg/**"
       - ".github/workflows/deploy-app.yml"
   workflow_dispatch: {}
 
@@ -38,6 +43,12 @@ jobs:
 
       - name: Install dependencies
         working-directory: modules/app
+        run: npm ci
+
+      # the analysis drawer bundles pcb_mesh sources, whose runtime deps
+      # (polygon-clipping, cdt2d, earcut) resolve from pcb_mesh/node_modules
+      - name: Install pcb_mesh dependencies
+        working-directory: modules/pcb_mesh
         run: npm ci
 
       - name: Build (base path = /${{ env.DEPLOY_SUBPATH }}/)

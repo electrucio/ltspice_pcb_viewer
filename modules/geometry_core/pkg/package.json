@@ -1,0 +1,17 @@
+{
+  "name": "geometry_core",
+  "type": "module",
+  "description": "Rust/WASM geometry kernel for the PCB parasitic-extraction engine: quality-guaranteed (Ruppert-refined) constrained Delaunay meshing of copper regions.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "geometry_core_bg.wasm",
+    "geometry_core.js",
+    "geometry_core.d.ts"
+  ],
+  "main": "geometry_core.js",
+  "types": "geometry_core.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
