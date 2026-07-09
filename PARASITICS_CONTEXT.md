@@ -147,6 +147,16 @@ Current status:
   `Pcb.copperLayerTypes` (signal/power/mixed) from the layers table.
   openair-max /SCL @1 GHz: 276.9/276.9 mm modeled (262.7 microstrip + 14.2
   stripline), Z0 36–108 Ω, 1.68 ns.
+- **Pad-to-pad profile (solver_rdc/src/rlgc.ts `analyzePathRlgc`)**: the SI view —
+  ordered Z0/RLGC sequence along the (resistance-)shortest track path A→B, via
+  crossings as events (THT pad barrels marked separately), and **stub detection**
+  (off-path branches BFS'd through endpoints AND vias, reported with attachment
+  position). `shortestTrackPath` (estimate.ts) now returns ordered PathSteps with
+  full track metadata; estimateResistance is a thin wrapper over it. Demo panel
+  renamed **"Pad-to-pad"** with DC-resistance and Transmission-line subsections;
+  profile rows coalesce consecutive identical segments; shares reference nets +
+  f with the net-level panel. openair /SCL I2C2.3→U12.6: 98.4 mm, 597 ps,
+  3 vias, flat 39 Ω, 5.5 mm stub at 68.9 mm.
 - **Next**: app-level integration, plane-net fast preview, coupled lines /
   differential pairs (HJ coupled equations), M6/M7 field solvers vs atlc.
 

@@ -14,7 +14,7 @@ import { analyzeRegion } from "../src/verify.js";
 import { initRuppert, ruppertReady } from "../src/mesh/ruppert.js";
 import type { LayerField } from "../../solver_rdc/src/solve.js";
 import { solveWithErrorEstimate } from "../../solver_rdc/src/richardson.js";
-import { analyzeNetRlgc } from "../../solver_rdc/src/rlgc.js";
+import { analyzeNetRlgc, analyzePathRlgc } from "../../solver_rdc/src/rlgc.js";
 import { sheetResistance } from "../../analytic_models/src/index.js";
 import { estimateResistance } from "../../solver_rdc/src/estimate.js";
 import type { BoardMesh, RegionMesh, SanitationReport } from "../src/types.js";
@@ -529,6 +529,7 @@ function runRlgc(): void {
   if (t.kinds["unmodeled"]) lines.push(`⚠ ${t.kinds["unmodeled"].toFixed(1)} mm unmodeled: ${[...reasons].join("; ")}`);
   for (const a of assumed) lines.push(`· ${a}`);
   rlgcOutEl.textContent = lines.join("\n") || "no track segments on this net";
+  renderPathProfile(); // the pad-to-pad profile shares the reference nets and f
 }
 
 refNetsSel.addEventListener("change", runRlgc);
@@ -608,6 +609,56 @@ function updatePadMarkers(): void {
     c.setAttribute("stroke", stroke);
     c.setAttribute("stroke-width", id === padASel.value || id === padBSel.value ? "0.45" : "0.25");
   }
+  renderPathProfile();
+}
+
+// ---- pad-to-pad transmission-line profile (ordered Z0 along the route) --------
+
+const pathProfileEl = document.getElementById("pathprofile")!;
+
+function renderPathProfile(): void {
+  if (!selectedNet || solveEl.hidden) { pathProfileEl.textContent = ""; return; }
+  const [a, b] = [padASel.value, padBSel.value];
+  if (!a || !b || a === b) { pathProfileEl.textContent = "pick two different pads"; return; }
+  const f = Math.max(0.01, Number(rlgcFreqEl.value) || 1) * 1e9;
+  const r = analyzePathRlgc(pcb, selectedNet, a, b, { referenceNets: [...chosenRefNets], frequencyHz: f });
+  if (!r) { pathProfileEl.textContent = "no pure track path between these pads (connection runs through pours)"; return; }
+
+  // coalesce consecutive segments with the same electrical identity for readability
+  type Row = { atMm: number; lengthMm: number; label: string };
+  const rows: Row[] = [];
+  let last: { key: string; row: Row } | null = null;
+  for (const s of r.steps) {
+    if (s.type === "via") {
+      rows.push({ atMm: s.atMm, lengthMm: 0, label: `${s.padBarrel ? "pad barrel" : "via"} ${s.fromLayer}→${s.toLayer}` });
+      last = null;
+      continue;
+    }
+    const key = s.kind === "unmodeled"
+      ? `u|${s.layer}|${s.reason}`
+      : `${s.layer}|${s.kind}|${s.widthMm.toFixed(3)}|${s.z0!.toFixed(1)}`;
+    if (last && last.key === key) {
+      last.row.lengthMm += s.lengthMm;
+      continue;
+    }
+    const label = s.kind === "unmodeled"
+      ? `${s.layer} — unmodeled (${s.reason ?? "?"})`
+      : `${s.layer} ${s.kind} w${s.widthMm.toFixed(2)}  Z0 ${s.z0!.toFixed(1)} Ω`;
+    const row = { atMm: s.atMm, lengthMm: s.lengthMm, label };
+    rows.push(row);
+    last = { key, row };
+  }
+  const lines = rows.map((r2) =>
+    `${r2.atMm.toFixed(1).padStart(6)} mm  ${r2.label}${r2.lengthMm > 0 ? ` × ${r2.lengthMm.toFixed(1)} mm` : ""}`,
+  );
+  const t = r.totals;
+  lines.push(
+    `path ${t.lengthMm.toFixed(1)} mm (${t.modeledLengthMm.toFixed(1)} modeled) · delay ${(t.delayS * 1e12).toFixed(0)} ps · ` +
+    `${t.viaCount} via${t.viaCount === 1 ? "" : "s"}` +
+    (t.z0Min !== undefined ? ` · Z0 ${t.z0Min.toFixed(0)}–${t.z0Max!.toFixed(0)} Ω` : ""),
+  );
+  for (const st of r.stubs) lines.push(`⚠ stub ${st.lengthMm.toFixed(1)} mm hanging at ${st.atMm.toFixed(1)} mm`);
+  pathProfileEl.textContent = lines.join("\n");
 }
 
 padASel.addEventListener("change", updatePadMarkers);

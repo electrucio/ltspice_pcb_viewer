@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import type { Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
+import type { Pcb, Pad, Footprint } from "../../kicad_pcb_viewer/src/parser/pcb.js";
 import { microstrip, stripline, microstripLoss } from "../../analytic_models/src/index.js";
-import { analyzeNetRlgc } from "../src/rlgc.js";
+import { analyzeNetRlgc, analyzePathRlgc } from "../src/rlgc.js";
 
 const STACKUP_2L: Pcb["stackup"] = [
   { name: "F.Cu", type: "copper", thicknessMm: 0.035 },
@@ -118,5 +118,84 @@ describe("net RLGC classifier — reference planes are explicit", () => {
     expect(s.assumed.join(" ")).toMatch(/εr unknown/);
     const direct = microstrip({ widthM: 0.3e-3, heightM: 1.6e-3, epsilonR: 4.5, thicknessM: 35e-6, frequencyHz: 1e9 });
     expect(s.z0).toBeCloseTo(direct.z0, 12);
+  });
+});
+
+describe("pad-to-pad profile (analyzePathRlgc)", () => {
+  const pad = (ref: string, x: number, y: number, layers: string[] = ["F.Cu"]): Pad => ({
+    ref, number: "1", shape: "rect", thruHole: false, pos: { x, y }, size: { w: 0.5, h: 0.5 },
+    angle: 0, rratio: 0.25, layers, net: "SIG",
+  });
+  const fp = (p: Pad): Footprint => ({
+    ref: p.ref, symbolUuid: "", value: "", pos: { x: 0, y: 0 }, angle: 0, layer: "F.Cu",
+    pads: [p], graphics: [], refPos: { x: 0, y: 0 }, refLayer: "F.SilkS",
+  });
+
+  // A(F.Cu 0,0) --10mm F.Cu 0.3--> (10,0) via -> B.Cu --8mm B.Cu 0.2--> B(18,0)
+  // plus a 5 mm stub branching at (10,0) on F.Cu
+  function pathBoard(): Pcb {
+    return {
+      ...board2L(),
+      footprints: [fp(pad("A", 0, 0)), fp(pad("B", 18, 0, ["B.Cu"]))],
+      tracks: [
+        { start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, width: 0.3, layer: "F.Cu", net: "SIG" },
+        { start: { x: 10, y: 0 }, end: { x: 18, y: 0 }, width: 0.2, layer: "B.Cu", net: "SIG" },
+        { start: { x: 10, y: 0 }, end: { x: 10, y: 5 }, width: 0.3, layer: "F.Cu", net: "SIG" }, // stub
+      ],
+      vias: [{ pos: { x: 10, y: 0 }, size: 0.6, drill: 0.3, layers: ["F.Cu", "B.Cu"], net: "SIG" }],
+      zones: [
+        { layer: "B.Cu", net: "GND", pts: [{ x: -1, y: -6 }, { x: 19, y: -6 }, { x: 19, y: 6 }, { x: -1, y: 6 }] },
+        { layer: "F.Cu", net: "GND", pts: [{ x: 9, y: -6 }, { x: 19, y: -6 }, { x: 19, y: 6 }, { x: 9, y: 6 }] },
+      ],
+      copperStack: ["F.Cu", "B.Cu"],
+      copperLayerTypes: { "F.Cu": "signal", "B.Cu": "signal" },
+    };
+  }
+
+  it("returns the ordered profile with cumulative positions and the via event", () => {
+    const r = analyzePathRlgc(pathBoard(), "SIG", "A.1", "B.1", { referenceNets: ["GND"], frequencyHz: 1e9 })!;
+    expect(r).not.toBeNull();
+    const kinds = r.steps.map((s) => (s.type === "via" ? "via" : `${s.type}:${(s as { layer: string }).layer}`));
+    expect(kinds).toEqual(["segment:F.Cu", "via", "segment:B.Cu"]);
+    const [seg1, via, seg2] = r.steps as [Extract<typeof r.steps[number], { type: "segment" }>, Extract<typeof r.steps[number], { type: "via" }>, Extract<typeof r.steps[number], { type: "segment" }>];
+    expect(seg1.atMm).toBe(0);
+    expect(via.atMm).toBeCloseTo(10, 9);
+    expect(seg2.atMm).toBeCloseTo(10, 9);
+    expect(via.padBarrel).toBe(false);
+    // F.Cu run is microstrip over the B.Cu pour; B.Cu run is microstrip against the F.Cu pour ABOVE it
+    expect(seg1.kind).toBe("microstrip");
+    expect(seg2.kind).toBe("microstrip");
+    expect(seg2.refAbove).toBe("F.Cu");
+    expect(r.totals.viaCount).toBe(1);
+    expect(r.totals.lengthMm).toBeCloseTo(18, 9);
+  });
+
+  it("finds the stub hanging at the via point, excluding path tracks", () => {
+    const r = analyzePathRlgc(pathBoard(), "SIG", "A.1", "B.1", { referenceNets: ["GND"] })!;
+    expect(r.stubs).toHaveLength(1);
+    expect(r.stubs[0]!.atMm).toBeCloseTo(10, 9);
+    expect(r.stubs[0]!.lengthMm).toBeCloseTo(5, 9);
+  });
+
+  it("segment travel order flips reversed tracks (start of profile = pad A side)", () => {
+    // ask for the reverse direction: from B to A — first step is the B.Cu segment,
+    // and its reported start must be at pad B's end (x = 18)
+    const r = analyzePathRlgc(pathBoard(), "SIG", "B.1", "A.1", { referenceNets: ["GND"] })!;
+    const first = r.steps[0]!;
+    expect(first.type).toBe("segment");
+    if (first.type === "segment") expect(first.start.x).toBeCloseTo(18, 9);
+  });
+
+  it("returns null when there is no pure track path", () => {
+    const zoneOnly = board2L({ tracks: [], footprints: [fp(pad("A", 0, 0)), fp(pad("B", 18, 0))] });
+    expect(analyzePathRlgc(zoneOnly, "SIG", "A.1", "B.1", { referenceNets: ["GND"] })).toBeNull();
+  });
+
+  it("profile Z0 matches the whole-net classifier for the same segments", () => {
+    const path = analyzePathRlgc(pathBoard(), "SIG", "A.1", "B.1", { referenceNets: ["GND"], frequencyHz: 1e9 })!;
+    const net = analyzeNetRlgc(pathBoard(), "SIG", { referenceNets: ["GND"], frequencyHz: 1e9 });
+    const pathSeg1 = path.steps.find((s) => s.type === "segment")! as { z0?: number };
+    const netSeg1 = net.segments.find((s) => s.layer === "F.Cu" && s.lengthMm > 6)!;
+    expect(pathSeg1.z0).toBeCloseTo(netSeg1.z0!, 12);
   });
 });

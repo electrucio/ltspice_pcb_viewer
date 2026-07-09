@@ -20,6 +20,7 @@
 
 import { boardThicknessMm, copperThicknessMm, type Pcb } from "../../kicad_pcb_viewer/src/parser/pcb.js";
 import { copperOrderOf } from "../../pcb_mesh/src/outline/copper.js";
+import { shortestTrackPath, type PathStep } from "./estimate.js";
 import {
   microstrip,
   microstripLoss,
@@ -27,6 +28,8 @@ import {
   striplineLoss,
   type LossResult,
 } from "../../analytic_models/src/index.js";
+
+type Track = Pcb["tracks"][number];
 
 const NP_PER_DB = Math.LN10 / 20;
 
@@ -115,7 +118,8 @@ function dielectricBetween(pcb: Pcb, a: string, b: string): { epsilonR?: number;
   return { epsilonR: erSeen ? erSum / wSum : undefined, tanDelta: tanSeen ? tanSum / wSum : undefined };
 }
 
-export function analyzeNetRlgc(pcb: Pcb, net: string, options?: RlgcOptions): RlgcResult {
+/** Shared per-track classifier used by the whole-net and the pad-to-pad analyses. */
+function makeClassifier(pcb: Pcb, options?: RlgcOptions): (t: Track) => RlgcSegment {
   const f = options?.frequencyHz ?? 1e9;
   const refNets = new Set(options?.referenceNets ?? []);
   const order = copperOrderOf(pcb);
@@ -150,11 +154,8 @@ export function analyzeNetRlgc(pcb: Pcb, net: string, options?: RlgcOptions): Rl
     return false;
   };
 
-  const segments: RlgcSegment[] = [];
-  for (const t of pcb.tracks) {
-    if (t.net !== net || !(t.width > 0)) continue;
+  return (t: Track): RlgcSegment => {
     const lengthMm = Math.hypot(t.end.x - t.start.x, t.end.y - t.start.y);
-    if (!(lengthMm > 0)) continue;
     const midX = (t.start.x + t.end.x) / 2, midY = (t.start.y + t.end.y) / 2;
     const li = order.indexOf(t.layer);
     const assumed: string[] = [];
@@ -173,8 +174,7 @@ export function analyzeNetRlgc(pcb: Pcb, net: string, options?: RlgcOptions): Rl
       base.reason = refNets.size || Object.values(pcb.copperLayerTypes).includes("power")
         ? "no reference plane covers this segment"
         : "no reference nets specified (pick the plane nets) and no power-type layers";
-      segments.push(base);
-      continue;
+      return base;
     }
 
     if (noStackup) assumed.push("no stackup: 1.6 mm board, 35 µm copper assumed");
@@ -224,7 +224,7 @@ export function analyzeNetRlgc(pcb: Pcb, net: string, options?: RlgcOptions): Rl
 
     const alphaCNp = loss.alphaConductorDbPerM * NP_PER_DB;
     const alphaDNp = loss.alphaDielectricDbPerM * NP_PER_DB;
-    segments.push({
+    return {
       ...base,
       z0, epsEff, delaySPerM,
       alphaDbPerM: loss.alphaDbPerM,
@@ -234,9 +234,11 @@ export function analyzeNetRlgc(pcb: Pcb, net: string, options?: RlgcOptions): Rl
       cPerM,
       skinDepthM: loss.skinDepthM,
       thickCopper: loss.thickCopper,
-    });
-  }
+    };
+  };
+}
 
+function totalsOf(segments: RlgcSegment[]): RlgcResult["totals"] {
   const kinds: Record<string, number> = {};
   let lengthMm = 0, modeledLengthMm = 0, delayS = 0;
   let z0Min: number | undefined, z0Max: number | undefined;
@@ -245,11 +247,121 @@ export function analyzeNetRlgc(pcb: Pcb, net: string, options?: RlgcOptions): Rl
     kinds[s.kind] = (kinds[s.kind] ?? 0) + s.lengthMm;
     if (s.kind === "unmodeled") continue;
     modeledLengthMm += s.lengthMm;
-    delayS += (s.delaySPerM ?? 0) * s.lengthMm * MM;
+    delayS += (s.delaySPerM ?? 0) * s.lengthMm * 1e-3;
     if (s.z0 !== undefined) {
       z0Min = z0Min === undefined ? s.z0 : Math.min(z0Min, s.z0);
       z0Max = z0Max === undefined ? s.z0 : Math.max(z0Max, s.z0);
     }
   }
-  return { segments, totals: { lengthMm, modeledLengthMm, delayS, z0Min, z0Max, kinds } };
+  return { lengthMm, modeledLengthMm, delayS, z0Min, z0Max, kinds };
+}
+
+export function analyzeNetRlgc(pcb: Pcb, net: string, options?: RlgcOptions): RlgcResult {
+  const classify = makeClassifier(pcb, options);
+  const segments: RlgcSegment[] = [];
+  for (const t of pcb.tracks) {
+    if (t.net !== net || !(t.width > 0)) continue;
+    if (!(Math.hypot(t.end.x - t.start.x, t.end.y - t.start.y) > 0)) continue;
+    segments.push(classify(t));
+  }
+  return { segments, totals: totalsOf(segments) };
+}
+
+// ---- pad-to-pad profile (the SI view: ordered Z0 along the signal's route) ----
+
+export type ProfileStep =
+  | ({ type: "segment"; /** distance from padA to the START of this piece, mm */ atMm: number } & RlgcSegment)
+  | { type: "via"; atMm: number; x: number; y: number; fromLayer: string; toLayer: string; /** THT pad barrel, not a via */ padBarrel: boolean };
+
+export interface RlgcPathResult {
+  steps: ProfileStep[];
+  /** branches hanging off the path — stubs (reflections on fast edges) */
+  stubs: Array<{ atMm: number; lengthMm: number }>;
+  totals: RlgcResult["totals"] & { viaCount: number };
+}
+
+/**
+ * Transmission-line profile along the shortest track path padA → padB: the ordered
+ * Z0/RLGC sequence a launched edge actually sees, with via crossings as events and
+ * off-path branches reported as stubs. null when no pure track path exists.
+ */
+export function analyzePathRlgc(pcb: Pcb, net: string, padA: string, padB: string, options?: RlgcOptions): RlgcPathResult | null {
+  const path = shortestTrackPath(pcb, net, padA, padB);
+  if (!path) return null;
+  const classify = makeClassifier(pcb, options);
+
+  const steps: ProfileStep[] = [];
+  const segments: RlgcSegment[] = [];
+  let atMm = 0;
+  let viaCount = 0;
+  for (const s of path.steps as PathStep[]) {
+    if (s.kind === "track") {
+      const seg = classify(s.track);
+      // orient the reported segment in travel direction
+      if (s.reversed) { const tmp = seg.start; seg.start = seg.end; seg.end = tmp; }
+      segments.push(seg);
+      steps.push({ type: "segment", atMm, ...seg });
+      atMm += s.lengthMm;
+    } else {
+      viaCount += s.padBarrel ? 0 : 1;
+      steps.push({ type: "via", atMm, x: s.x, y: s.y, fromLayer: s.fromLayer, toLayer: s.toLayer, padBarrel: s.padBarrel });
+    }
+  }
+
+  // stubs: net tracks NOT on the path, reachable from path nodes (via endpoints,
+  // through off-path vias too) — report total hanging length per attachment point
+  const key = (layer: string, x: number, y: number): string => `${layer}|${Math.round(x * 1000)},${Math.round(y * 1000)}`;
+  const pathTracks = new Set<Track>(path.steps.filter((s): s is Extract<PathStep, { kind: "track" }> => s.kind === "track").map((s) => s.track));
+  const netTracks = pcb.tracks.filter((t) => t.net === net && t.width > 0 && !pathTracks.has(t));
+  // endpoint index of off-path tracks + layer bridges at net vias
+  const byKey = new Map<string, Track[]>();
+  const push = (k: string, t: Track) => (byKey.get(k) ?? byKey.set(k, []).get(k)!).push(t);
+  for (const t of netTracks) {
+    push(key(t.layer, t.start.x, t.start.y), t);
+    push(key(t.layer, t.end.x, t.end.y), t);
+  }
+  const viaAliases = new Map<string, string[]>(); // key → sibling keys on other layers
+  for (const v of pcb.vias) {
+    if (v.net !== net) continue;
+    const ks = (v.layers.length ? v.layers : pcb.copperStack).map((l) => key(l, v.pos.x, v.pos.y));
+    for (const k of ks) viaAliases.set(k, ks);
+  }
+  const visited = new Set<Track>();
+  const stubLengthFrom = (startKey: string): number => {
+    let total = 0;
+    const queue = [startKey];
+    const seenKeys = new Set<string>(queue);
+    while (queue.length) {
+      const k = queue.pop()!;
+      for (const alias of viaAliases.get(k) ?? []) if (!seenKeys.has(alias)) { seenKeys.add(alias); queue.push(alias); }
+      for (const t of byKey.get(k) ?? []) {
+        if (visited.has(t)) continue;
+        visited.add(t);
+        total += Math.hypot(t.end.x - t.start.x, t.end.y - t.start.y);
+        for (const p of [t.start, t.end]) {
+          const nk = key(t.layer, p.x, p.y);
+          if (!seenKeys.has(nk)) { seenKeys.add(nk); queue.push(nk); }
+        }
+      }
+    }
+    return total;
+  };
+  const stubs: Array<{ atMm: number; lengthMm: number }> = [];
+  let cursor = 0;
+  for (const s of path.steps as PathStep[]) {
+    if (s.kind === "track") {
+      const from = s.reversed ? s.track.end : s.track.start;
+      const to = s.reversed ? s.track.start : s.track.end;
+      for (const [pt, at] of [[from, cursor], [to, cursor + s.lengthMm]] as const) {
+        const l = stubLengthFrom(key(s.track.layer, pt.x, pt.y));
+        if (l > 0) stubs.push({ atMm: at, lengthMm: l });
+      }
+      cursor += s.lengthMm;
+    } else {
+      const l = stubLengthFrom(key(s.fromLayer, s.x, s.y)) + stubLengthFrom(key(s.toLayer, s.x, s.y));
+      if (l > 0) stubs.push({ atMm: cursor, lengthMm: l });
+    }
+  }
+
+  return { steps, stubs, totals: { ...totalsOf(segments), viaCount } };
 }
